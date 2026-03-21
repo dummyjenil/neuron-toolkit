@@ -4,6 +4,8 @@ theme:
   name: material
   palette:
     - scheme: default   # 🔥 LIGHT THEME
+  features:
+    - navigation.instant  # <--- Agar ye hai
 
 extra_css:
   - stylesheets/extra.css
@@ -11,6 +13,7 @@ extra_javascript:
   - https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js
   - https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollToPlugin.min.js
   - https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js
+  - https://unpkg.com/rough-notation/lib/rough-notation.iife.js
   - javascripts/extra.js
 
 markdown_extensions:

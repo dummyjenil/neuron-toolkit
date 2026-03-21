@@ -90,7 +90,7 @@ document.querySelectorAll(".md-typeset pre code").forEach(codeBlock => {
 
         Object.assign(this.style, { filter: "blur(0)", cursor: "default" });
 
-        if (canPlayAudio) scribbleSound.play().catch(()=>{});
+        if (canPlayAudio) scribbleSound.play().catch(() => { });
 
         tokens.length
             ? gsap.to(tokens, {
@@ -121,30 +121,6 @@ document.querySelectorAll(".md-typeset p, .md-typeset li").forEach(el => {
     });
 });
 
-document.addEventListener("DOMContentLoaded", () => {
-    const main = document.querySelector(".md-main__inner");
-
-    gsap.fromTo(main,
-        { rotationY: -90, opacity: 0, transformOrigin: "left center" },
-        { rotationY: 0, opacity: 1, duration: 1.2, ease: "back.out(1.5)" }
-    );
-
-    document.querySelectorAll(".md-nav__link, .md-typeset a").forEach(link => {
-        link.addEventListener("click", e => {
-            const href = link.getAttribute("href");
-            if (!href || href.startsWith("#") || href.startsWith("http")) return;
-
-            e.preventDefault();
-            gsap.to(main, {
-                rotationY: 90,
-                opacity: 0,
-                duration: 0.6,
-                onStart: () => playSFX('page-flip', 0.5),
-                onComplete: () => location.href = href
-            });
-        });
-    });
-});
 
 const scribbleSound = Object.assign(new Audio('/sound/pancil_writing.mp3'), { loop: true, volume: 0.3 });
 
@@ -194,5 +170,165 @@ const playSFX = (file, volume = 0.4) => {
     if (!canPlayAudio) return;
     const audio = new Audio(`/sound/${file}.mp3`);
     audio.volume = volume;
-    audio.play().catch(()=>{});
+    audio.play().catch(() => { });
+};
+
+
+// Scroll speed ke basis par paper ko bend karna
+let proxy = { skew: 0 },
+    skewSetter = gsap.quickSetter(".md-main__inner", "skewY", "deg"),
+    clamp = gsap.utils.clamp(-5, 5); // Max 5 degree skew
+
+ScrollTrigger.create({
+    onUpdate: (self) => {
+        let skew = clamp(self.getVelocity() / -300);
+        if (Math.abs(skew) > Math.abs(proxy.skew)) {
+            proxy.skew = skew;
+            gsap.to(proxy, { skew: 0, duration: 0.8, ease: "power3", overwrite: true, onUpdate: () => skewSetter(proxy.skew) });
+        }
+    }
+});
+
+
+document$.subscribe(() => {
+    let scrollTimeout;
+
+    const triggerHighlights = () => {
+        // Sirf un 'strong' tags ko pakdo jo screen par dikh rahe hain
+        const highlights = document.querySelectorAll('.md-typeset strong:not(.highlight-active)');
+
+        highlights.forEach((el, index) => {
+            const rect = el.getBoundingClientRect();
+            const isVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
+
+            if (isVisible) {
+                // Thoda sa delay (stagger) taaki ek saath saare na khulein
+                setTimeout(() => {
+                    el.classList.add('highlight-active');
+                    // Optional: Pencil scribble sound yahan play kar sakte ho
+                    if (typeof playSFX === 'function') playSFX('pencil-short', 0.2);
+                }, index * 150);
+            }
+        });
+    };
+
+    // Scroll event listener
+    window.addEventListener('scroll', () => {
+        // Jab tak scroll ho raha hai, purana timeout clear karo
+        clearTimeout(scrollTimeout);
+
+        // Jab scroll ruke (250ms tak koi movement na ho)
+        scrollTimeout = setTimeout(() => {
+            triggerHighlights();
+        }, 250);
+    });
+
+    // Initial check agar page load par hi kuch dikh raha ho
+    setTimeout(triggerHighlights, 1000);
+});
+
+// Function to handle the slide-out before navigation
+const handleNavigation = (e) => {
+    const link = e.target.closest("a");
+    if (!link) return;
+
+    const href = link.getAttribute("href");
+    const target = link.getAttribute("target");
+
+    // Skip if: no href, internal anchor, external link, or opens in new tab
+    if (!href || href.startsWith("#") || target === "_blank" || href.includes("http") && !href.includes(window.location.hostname)) {
+        return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const main = document.querySelector(".md-main__inner");
+
+    // 1. EXIT ANIMATION: Purana page niche slide hoga
+    gsap.to(main, {
+        y: "100vh",
+        opacity: 0,
+        duration: 0.6,
+        ease: "power2.in",
+        onStart: () => {
+            document.body.style.overflow = "hidden";
+        },
+        onComplete: () => {
+            // Animation khatam hone par hi page change karo
+            sessionStorage.setItem("rolling", "true");
+            location.href = href;
+        }
+    });
+};
+
+// 2. ENTRANCE ANIMATION: Jab naya page load ho
+document$.subscribe(() => {
+    const main = document.querySelector(".md-main__inner");
+    if (!main) return;
+
+    // Click listeners ko reset karna (Memory leak se bachne ke liye)
+    document.removeEventListener("click", handleNavigation);
+    document.addEventListener("click", handleNavigation);
+
+    if (sessionStorage.getItem("rolling") === "true") {
+        sessionStorage.removeItem("rolling");
+
+        // Set initial state (Upar chhupa hua)
+        gsap.set(main, { y: "-100vh", opacity: 0 });
+
+        // Slide In Animation
+        gsap.to(main, {
+            y: 0,
+            opacity: 1,
+            duration: 0.8,
+            ease: "back.out(1.2)", // Halka sa bounce effect
+            onComplete: () => {
+                document.body.style.overflow = "";
+                gsap.set(main, { clearProps: "all" });
+            }
+        });
+    }
+});
+
+
+
+// --- CONFIGURATION ---
+const slideDuration = 0.7;
+const paperEase = "power4.inOut";
+
+// 1. EXIT ANIMATION (Purana panna niche jaana)
+const exitPage = (container) => {
+    return gsap.to(container, {
+        y: "100vh",
+        opacity: 0,
+        duration: slideDuration,
+        ease: "power2.in",
+        display: "none" // Taaki naya content turant peeche hide na ho
+    });
+};
+
+// 2. ENTRANCE ANIMATION (Naya panna upar se aana)
+const enterPage = (container) => {
+    // Initial position set karo (Screen ke upar)
+    gsap.set(container, {
+        y: "-100vh",
+        opacity: 0,
+        display: "block"
+    });
+
+    // Niche slide karke center mein laao
+    return gsap.to(container, {
+        y: 0,
+        opacity: 1,
+        duration: slideDuration + 0.2,
+        ease: "back.out(1.1)", // Halka sa bouncy landing
+        onStart: () => {
+            if (window.playSFX) playSFX('paper-slide-in', 0.4);
+        },
+        onComplete: () => {
+            gsap.set(container, { clearProps: "y,opacity" });
+            document.body.style.overflow = ""; // Scroll wapas enable
+        }
+    });
 };

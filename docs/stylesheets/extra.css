@@ -224,3 +224,83 @@ html {
     transform: translateY(100%);
   }
 }
+
+
+/* Purani file jaisa effect dene ke liye global filter */
+.md-container {
+  filter: contrast(1.1) brightness(1.05) sepia(0.05);
+}
+
+/* Sidebar links ko 'hand-drawn' circles dena */
+.md-nav__link--active {
+  border-bottom: 2px path("M0 10 Q 50 0 100 10") dashed #333;
+  /* SVG Path logic */
+  transform: rotate(-1deg);
+}
+
+.md-typeset strong {
+  position: relative;
+  display: inline;
+  z-index: 1;
+  white-space: nowrap;
+  /* Animation ke waqt wrap issue se bachne ke liye */
+}
+
+.md-typeset strong::after {
+  content: "";
+  position: absolute;
+  left: -2px;
+  bottom: 2px;
+  width: 0%;
+  /* Initial state: Shunya */
+  height: 100%;
+  background-color: #ffd43b;
+  z-index: -1;
+  transform: rotate(-1deg) skewX(-10deg);
+  opacity: 0.6;
+  border-radius: 255px 15px 225px 15px/15px 225px 15px 255px;
+  /* Sketchy shape */
+  transition: width 0.6s cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+/* Jab 'active' class lagegi tabhi highlight dikhega */
+.md-typeset strong.highlight-active::after {
+  width: calc(100% + 4px);
+}
+
+
+:root {
+  --paper-color: #fff8dc;
+}
+
+.md-main__inner {
+  position: relative;
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow:
+    -5px 0 15px rgba(0, 0, 0, 0.1),
+    5px 0 15px rgba(0, 0, 0, 0.1);
+  /* Paper depth */
+}
+
+/* Jab page palat raha ho */
+.page-peeling {
+  transform: rotateY(-90deg) scale(0.9);
+  opacity: 0;
+  transform-origin: left center;
+}
+
+.page-entering {
+  animation: paperEnter 0.8s ease-out forwards;
+}
+
+@keyframes paperEnter {
+  0% {
+    transform: rotateY(90deg) scale(0.9);
+    opacity: 0;
+  }
+
+  100% {
+    transform: rotateY(0deg) scale(1);
+    opacity: 1;
+  }
+}
