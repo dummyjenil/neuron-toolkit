@@ -19,7 +19,7 @@ pip install pandas       # required for ONNXQuery.to_dataframe()
 Place the `onnx_toolkit` package directory on your Python path, or install it as a local package:
 
 ```bash
-pip install -e /path/to/onnx_toolkit
+pip install onnx_toolkit
 ```
 
 ---

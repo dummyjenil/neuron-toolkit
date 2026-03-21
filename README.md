@@ -1,34 +1,478 @@
 # onnx_toolkit
 
-A unified ONNX parsing and pattern-matching library. `onnx_toolkit` provides two tightly integrated components:
+A Python library for loading, querying, pattern-matching, and rewriting ONNX computation graphs. It provides a fluent query API, a structural pattern DSL, and a staged graph rewriter that compose into concise analysis and transformation pipelines.
 
-- **`ONNXParser` / `ONNXQuery`** — load a model and query its graph with a fluent, chainable API
-- **`Pattern` / `Pattern.detect`** — describe structural subgraph patterns and match them against the graph using DFS with commutativity support
+---
+
+## Contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Components](#components)
+  - [ONNXParser](#onnxparser)
+  - [ONNXQuery](#onnxquery)
+  - [Pattern DSL](#pattern-dsl)
+  - [PatternDetector & MatchResult](#patterndetector--matchresult)
+  - [GraphRewriter](#graphrewriter)
+- [Examples](#examples)
+  - [Inspect a model](#inspect-a-model)
+  - [Query and traverse the graph](#query-and-traverse-the-graph)
+  - [Match structural patterns](#match-structural-patterns)
+  - [Rewrite the graph](#rewrite-the-graph)
+  - [Export subgraphs](#export-subgraphs)
+- [Architecture](#architecture)
+- [Documentation](#documentation)
+
+---
+
+## Features
+
+- **Fluent query API** — chain filters, traversals, and set operations on graph nodes without mutating state.
+- **Pattern DSL** — describe subgraph structures with Python arithmetic operators, named captures, attribute constraints, shape and dtype constraints, and union patterns.
+- **Full match results** — every match returns the visited subgraph, named bindings, start node, and boundary node, not just a boolean.
+- **Staged rewriter** — accumulate replacements, deletions, and insertions and apply them atomically in a single `build()` call. The original model is never modified.
+- **Export** — save any selected subgraph to `.onnx`, Graphviz DOT, or a pandas DataFrame.
+- **Shape inference** — runs automatically on load; rank and dtype constraints in patterns work out of the box.
+- **18 activation helpers** — built-in patterns for GELU, SiLU, Mish, GELU-tanh, ReLU6, and more, each expanding to the full multi-node subgraph they are typically lowered to.
+
+---
 
 ## Installation
+
+Requires Python 3.8+.
+
+```bash
+pip install onnx numpy
+pip install pandas          # optional — needed for .to_dataframe()
+```
+
+Then place the `onnx_toolkit` package directory on your Python path, or install as a local package:
 
 ```bash
 pip install onnx_toolkit
 ```
+
+---
 
 ## Quick Start
 
 ```python
 from onnx_toolkit import ONNXParser, Pattern
 
-# Load a model and query it
 parser = ONNXParser("model.onnx")
+print(parser.summary())
 
-# Find all Conv nodes that have weights, then look at their immediate children
+# --- Query ---
 convs = parser.find().find_by_op_type("Conv").has_params()
-print(convs)
+print(convs.count(), "Conv nodes with weights")
 
-# Check if a node matches a Swish/SiLU activation pattern
-x = Pattern.any()
-swish = Pattern.silu(x)
-detector = Pattern.detect(parser.model, start_node="MatMul_0")
-print(detector.match(swish))  # True or False
+# --- Pattern match ---
+x       = Pattern.any().capture("x")
+results = parser.find().match_results(Pattern.gelu(x))
+
+for r in results:
+    print(f"GELU at {r.start.name}, input: {r.bindings['x'].name}")
+    print(f"  subgraph: {[n.name for n in r.nodes]}")
+
+# --- Rewrite ---
+rw = parser.rewriter()
+for r in results:
+    rw.replace_from_result(r, new_op="Gelu")
+rw.build("model_fused.onnx")
 ```
+
+---
+
+## Components
+
+### ONNXParser
+
+Loads a `.onnx` file and exposes the graph for querying and rewriting. Shape inference runs automatically on load.
+
+```python
+from onnx_toolkit import ONNXParser
+
+parser = ONNXParser("model.onnx")               # shape inference on by default
+parser = ONNXParser("model.onnx", infer_shapes=False)
+
+print(parser.summary())
+
+# Direct access to graph data
+print(len(parser.nodes))                        # total node count
+print(parser.tensor_map["conv1.weight"].shape)  # weight tensor by name
+print(parser.graph_inputs)                      # set of input tensor names
+print(parser.shape_info.get("relu_0"))          # (rank, dtype) → (4, "float32")
+```
+
+---
+
+### ONNXQuery
+
+A lazy, chainable view over a subset of graph nodes. Every method returns a new `ONNXQuery` without mutating the receiver.
+
+```python
+q = parser.find()   # start with all nodes
+
+# Filters
+q.find_by_op_type("Conv")
+q.find_by_name("layer1")                              # substring
+q.find_by_name("/layer1/conv1", exact=True)
+q.find_by_attribute("group", lambda g: g > 1)         # callable predicate
+q.find_by_param_name("bias")
+q.has_params()
+
+# Traversal
+q.children()
+q.parents()
+q.ancestors(max_depth=5)
+q.descendants(max_depth=3)
+q.entry_nodes        # nodes that read graph-level inputs
+q.output_nodes       # nodes that write graph-level outputs
+
+# Ordering
+q.topological_sort()
+q.is_topologically_sorted()
+
+# Weight tensors
+q.tensor("conv1.weight")          # single array by name
+q.find_by_op_type("Conv")[0].tensor()  # {name: array} for one node
+q.find_by_op_type("Conv").tensor()     # {node_name: {name: array}} for many
+
+# Functional
+q.apply(lambda node, params: print(node.name, params))
+
+# Set operations
+a.union(b)
+a.intersection(b)
+a.difference(b)
+
+# Export
+q.to_dot(show_params=True)       # Graphviz DOT string
+q.to_dataframe()                  # pandas DataFrame
+q.to_onnx("subgraph.onnx")       # standalone ONNX file
+
+# Iteration
+for node in q: ...
+q[0]          # first node as ONNXQuery
+q[0:3]        # slice
+len(q)        # node count
+bool(q)       # True if non-empty
+```
+
+---
+
+### Pattern DSL
+
+Patterns describe the shape of a subgraph using Python operators and method chaining. They are independent of any model and can be reused across many matches.
+
+**Primitives**
+
+```python
+Pattern.any()            # wildcard — matches any node
+Pattern.const(0.5)       # constant tensor ≈ 0.5 (tolerance 1e-3)
+Pattern.op("MatMul")     # node with this op type
+Pattern.any_of(p1, p2)   # union — first alternative that matches wins
+```
+
+**Arithmetic operators** map directly to ONNX ops:
+
+```python
+x = Pattern.any()
+
+x + Pattern.const(1.0)   # Add
+x * 0.5                  # Mul  (numbers auto-coerced to const)
+x / Pattern.const(1.414) # Div
+x ** 3.0                 # Pow
+x - Pattern.const(1.0)   # Sub
+-x                       # Neg
+Pattern.op("Erf")(x)     # unary application
+```
+
+`Add` and `Mul` are matched **commutatively** — input order in the graph does not matter.
+
+**Modifiers**
+
+```python
+Pattern.any().capture("x")                          # bind to MatchResult.bindings["x"]
+Pattern.op("Conv").where(group=lambda g: g > 1)     # attribute predicate
+Pattern.op("Conv").where(kernel_shape=[3, 3])       # attribute exact match
+Pattern.op("MatMul").with_output_rank(2)            # shape constraint
+Pattern.op("Conv").with_dtype("float16")            # dtype constraint
+```
+
+All modifiers return a new `Pattern` and can be chained in any order.
+
+**Built-in activation helpers**
+
+Each helper expands to the full multi-node subgraph that activation is typically lowered to in ONNX:
+
+| Helper | ONNX subgraph |
+|---|---|
+| `Pattern.relu(x)` | `Relu(x)` |
+| `Pattern.sigmoid(x)` | `Sigmoid(x)` |
+| `Pattern.tanh(x)` | `Tanh(x)` |
+| `Pattern.leaky_relu(x)` | `LeakyRelu(x)` |
+| `Pattern.elu(x)` | `Elu(x)` |
+| `Pattern.selu(x)` | `Selu(x)` |
+| `Pattern.hardsigmoid(x)` | `HardSigmoid(x)` |
+| `Pattern.hardswish(x)` | `x * HardSigmoid(x)` |
+| `Pattern.silu(x)` / `Pattern.swish(x)` | `x * Sigmoid(x)` |
+| `Pattern.gelu(x)` | `x * (Erf(x / √2) + 1) * 0.5` |
+| `Pattern.gelu_tanh(x)` | tanh approximation |
+| `Pattern.mish(x)` | `x * Tanh(Softplus(x))` |
+| `Pattern.relu6(x)` | `Clip(x, 0, 6)` |
+| `Pattern.softmax(x)` | `Softmax(x)` |
+| `Pattern.log_softmax(x)` | `LogSoftmax(x)` |
+| `Pattern.prelu(x, slope)` | `PRelu(x, slope)` |
+
+---
+
+### PatternDetector & MatchResult
+
+`PatternDetector` runs a DFS upstream from a start node and returns a `MatchResult` on success.
+
+```python
+from onnx_toolkit import PatternDetector, Pattern
+
+x   = Pattern.any().capture("x")
+det = PatternDetector(parser.model, start_node="Mul_42")
+r   = det.match(Pattern.silu(x))
+
+if r:
+    print(r.start.name)          # "Mul_42"
+    print(r.end.name)            # boundary node (or start if no end_node given)
+    print(r.nodes)               # all visited NodeProtos, deduplicated
+    print(r.bindings["x"].name)  # the node that matched the "x" capture
+    sub = r.as_query()           # convert to ONNXQuery for further analysis
+```
+
+**`end_node`** is an exclusive upstream boundary — the DFS stops when it would enter that node, treating the branch as satisfied. The matched subgraph is everything between `start_node` (inclusive) and `end_node` (exclusive):
+
+```python
+# Match the SiLU at Mul_7 but don't cross Add_3
+det = PatternDetector(parser.model, start_node="Mul_7", end_node="Add_3")
+r   = det.match(Pattern.silu(Pattern.any()))
+# r.end.name == "Add_3"
+```
+
+For scanning all nodes, prefer `ONNXQuery.match_results()` which shares the output→node map across all candidates:
+
+```python
+results = parser.find().match_results(Pattern.gelu(x))  # efficient bulk scan
+```
+
+---
+
+### GraphRewriter
+
+Stages graph mutations and applies them atomically. The original model is never modified until `build()` is called.
+
+```python
+rw = parser.rewriter()
+
+# Replace a matched subgraph with a single new op
+for r in parser.find().match_results(Pattern.gelu(x)):
+    rw.replace_from_result(r, new_op="Gelu")
+
+# Or specify inputs/outputs explicitly
+rw.replace(
+    nodes   = r.nodes,
+    new_op  = "Gelu",
+    inputs  = [r.bindings["x"].output[0]],
+    outputs = [r.start.output[0]],
+)
+
+# Delete nodes entirely
+rw.delete(parser.find().find_by_op_type("Dropout").nodes)
+
+# Insert a new node before an existing one
+rw.insert_before(target_node, "Relu", inputs=["feat"], outputs=["feat_relu"])
+
+# Discard all pending edits
+rw.reset()
+
+# Apply everything and save
+new_model = rw.build("model_optimised.onnx")
+```
+
+All edit methods return `self` and can be chained. Shape inference is re-run automatically after `build()`.
+
+---
+
+## Examples
+
+### Inspect a model
+
+```python
+parser = ONNXParser("model.onnx")
+print(parser.summary())
+
+# Op type frequency
+from collections import Counter
+counts = Counter(n.op_type for n in parser.nodes)
+for op, n in counts.most_common(5):
+    print(f"  {op:<25} {n}")
+
+# Total parameter count
+total = sum(v.size for v in parser.tensor_map.values())
+print(f"Parameters: {total:,}")
+```
+
+---
+
+### Query and traverse the graph
+
+```python
+# Depthwise convolutions without bias
+dw    = parser.find().find_by_attribute("group", lambda g: g > 1)
+nobias = dw.difference(dw.find_by_param_name("bias"))
+print(f"{nobias.count()} depthwise Conv nodes without bias")
+
+# What feeds into every BatchNorm?
+bn_parents = parser.find().find_by_op_type("BatchNormalization").parents()
+print(bn_parents.op_types())
+
+# Export the first five layers as a standalone model
+early = parser.find().entry_nodes.descendants(max_depth=4)
+early.union(parser.find().entry_nodes).to_onnx("early.onnx")
+
+# Visualise
+with open("graph.dot", "w") as f:
+    f.write(parser.find().to_dot(show_params=True))
+# dot -Tsvg graph.dot -o graph.svg
+```
+
+---
+
+### Match structural patterns
+
+```python
+x = Pattern.any().capture("x")
+
+# Any activation function
+any_act = Pattern.any_of(
+    Pattern.relu(x), Pattern.gelu(x), Pattern.silu(x),
+    Pattern.tanh(x), Pattern.sigmoid(x),
+)
+parser.find().matches(any_act).apply(lambda n, _: print(n.op_type, n.name))
+
+# Depthwise conv → BatchNorm pairs with captures
+dw = Pattern.op("Conv").where(group=lambda g: g > 1).capture("conv")
+for r in parser.find().find_by_op_type("BatchNormalization").match_results(
+    Pattern.op("BatchNormalization", dw)
+):
+    print("conv:", r.bindings["conv"].name)
+    print("bn:  ", r.start.name)
+
+# fp16 MatMul only
+fp16_mm = Pattern.op("MatMul").with_dtype("float16").capture("mm")
+for r in parser.find().match_results(fp16_mm):
+    print("fp16 MatMul:", r.bindings["mm"].name)
+```
+
+---
+
+### Rewrite the graph
+
+```python
+x  = Pattern.any().capture("x")
+rw = parser.rewriter()
+
+# Fuse all activation subgraphs in one pass
+fusions = {
+    Pattern.gelu(x):      "Gelu",
+    Pattern.gelu_tanh(x): "Gelu",
+    Pattern.silu(x):      "Silu",
+    Pattern.mish(x):      "Mish",
+}
+
+total = 0
+for pat, new_op in fusions.items():
+    for r in parser.find().match_results(pat):
+        rw.replace_from_result(r, new_op=new_op)
+        total += 1
+
+rw.delete(parser.find().find_by_op_type("Dropout").nodes)
+
+new_model = rw.build("model_optimised.onnx")
+print(f"Fused {total} activations, removed Dropout")
+print(f"Nodes: {len(parser.nodes)} → {len(new_model.graph.node)}")
+```
+
+---
+
+### Export subgraphs
+
+```python
+# Save matched subgraphs to individual files
+for i, r in enumerate(parser.find().match_results(Pattern.gelu(x))):
+    r.as_query().to_onnx(f"gelu_{i}.onnx")
+    r.as_query().to_dot()
+
+# Inspect as a DataFrame
+df = parser.find().find_by_op_type("Conv").to_dataframe()
+print(df[["name", "num_params", "param_shapes"]])
+```
+
+---
+
+## Architecture
+
+```
+ONNXParser
+│
+├── .find()  ─────────────────────────────► ONNXQuery
+│                                           │
+│                                           ├── .matches(pattern)       ─► ONNXQuery
+│                                           ├── .match_results(pattern) ─► List[MatchResult]
+│                                           ├── .topological_sort()     ─► ONNXQuery
+│                                           ├── .apply(fn)              ─► ONNXQuery
+│                                           ├── .to_dot()               ─► str
+│                                           ├── .to_dataframe()         ─► DataFrame
+│                                           └── .to_onnx(path)
+│
+├── .pattern_detect(pattern, start, end) ─► MatchResult | None
+│
+└── .rewriter() ──────────────────────────► GraphRewriter
+                                            │
+                                            ├── .replace(nodes, new_op, …)
+                                            ├── .replace_from_result(result, new_op)
+                                            ├── .delete(nodes)
+                                            ├── .insert_before(target, new_op, …)
+                                            ├── .reset()
+                                            └── .build(path?) ──────────► ModelProto
+```
+
+**Package layout**
+
+```
+onnx_toolkit/
+├── __init__.py    Public API: ONNXParser, ONNXQuery, Pattern,
+│                  PatternDetector, MatchResult, GraphRewriter
+├── parser.py      ONNXParser
+├── query.py       ONNXQuery
+├── pattern.py     Pattern, PatternDetector, MatchResult
+├── rewriter.py    GraphRewriter
+├── _utils.py      Internal helpers (attr extraction, shape info, graph shim)
+└── _types.py      TensorMap type alias
+```
+
+---
+
+## Documentation
+
+Full reference documentation is in the `docs/` directory:
+
+| File | Contents |
+|---|---|
+| [`docs/getting_started.md`](docs/getting_started.md) | Installation, first steps, logging |
+| [`docs/parser.md`](docs/parser.md) | `ONNXParser` — all attributes and methods |
+| [`docs/query.md`](docs/query.md) | `ONNXQuery` — all filters, traversal, export |
+| [`docs/pattern.md`](docs/pattern.md) | `Pattern` DSL — all constructors, modifiers, operators |
+| [`docs/detector.md`](docs/detector.md) | `PatternDetector` and `MatchResult` — matching semantics |
+| [`docs/rewriter.md`](docs/rewriter.md) | `GraphRewriter` — all edit operations and limitations |
+| [`docs/cookbook.md`](docs/cookbook.md) | 60+ worked examples across 11 categories |
 
 ---
 
@@ -41,515 +485,12 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 ```
 
-To enable output only for this library:
-
-```python
-logging.getLogger("onnx_toolkit").setLevel(logging.DEBUG)
-logging.getLogger("onnx_toolkit").addHandler(logging.StreamHandler())
-```
-
-### Sub-loggers
-
-| Logger name             | Covers                                   |
-|-------------------------|------------------------------------------|
-| `onnx_toolkit`          | Top-level / parser messages              |
-| `onnx_toolkit.query`    | `ONNXQuery` filter and traversal steps   |
-| `onnx_toolkit.pattern`  | `Pattern` construction messages          |
-| `onnx_toolkit.detect`   | `Pattern.detect` DFS walk and decisions  |
-
----
-
-## `ONNXParser`
-
-Loads an ONNX model from disk and provides an entry point for graph queries.
-
-```python
-parser = ONNXParser("model.onnx")
-```
-
-### Methods
-
-#### `find() → ONNXQuery`
-
-Returns an `ONNXQuery` over **all** nodes in the graph. This is the starting point for every query chain.
-
-```python
-query = parser.find()
-```
-
-#### `pattern_detect(pattern, start_node=None, end_node=None) → bool`
-
-Convenience shortcut: creates a `Pattern.detect` bound to this model and immediately calls `.match(pattern)`.
-
-```python
-x = Pattern.any()
-result = parser.pattern_detect(Pattern.relu(x), start_node="Relu_0")
-```
-
-| Parameter    | Type                      | Description                              |
-|--------------|---------------------------|------------------------------------------|
-| `pattern`    | `Pattern`                 | The pattern to match                     |
-| `start_node` | `str` or `NodeProto`      | Seed node (name string or proto object)  |
-| `end_node`   | `str` or `NodeProto`      | Stop traversal at this node (optional)   |
-
-#### `summary() → str`
-
-Returns a human-readable text summary of the loaded model, including node count, tensor count, graph I/O counts, and a ranked frequency table of op types.
-
-```python
-print(parser.summary())
-# ONNX model summary
-#   Nodes       : 152
-#   Tensors     : 104
-#   ...
-```
-
----
-
-## `ONNXQuery`
-
-A lazy, chainable view over a subset of ONNX graph nodes. Every filter and traversal method returns a **new** `ONNXQuery`, so calls can be freely chained without mutating the receiver.
-
-```python
-parser.find()
-      .find_by_op_type("Conv")
-      .has_params()
-      .children()
-      .find_by_op_type("Relu")
-```
-
-### Filter Methods
-
-#### `find_by_op_type(op_type: str) → ONNXQuery`
-
-Filters nodes whose `op_type` matches exactly (case-sensitive).
-
-```python
-convs = parser.find().find_by_op_type("Conv")
-```
-
-#### `find_by_name(name: str, *, exact: bool = False) → ONNXQuery`
-
-Filters nodes by name. By default performs a case-insensitive substring match. Pass `exact=True` for strict equality.
-
-```python
-# Substring match (default)
-nodes = parser.find().find_by_name("block2")
-
-# Exact match
-node = parser.find().find_by_name("Conv_14", exact=True)
-```
-
-#### `find_by_tensor(tensor_name: str) → ONNXQuery`
-
-Filters nodes that either consume or produce a tensor with the given name.
-
-```python
-nodes = parser.find().find_by_tensor("input.1")
-```
-
-#### `find_by_param_name(name: str, *, exact: bool = False) → ONNXQuery`
-
-Filters nodes whose weight (initializer) inputs match the given name. Supports substring (default) or exact matching.
-
-```python
-# All nodes with a weight whose name contains "bias"
-nodes = parser.find().find_by_param_name("bias")
-```
-
-#### `find_by_attribute(attr_name: str, value: Any = None) → ONNXQuery`
-
-Filters nodes that have the given ONNX attribute, optionally requiring it to equal a specific value.
-
-```python
-# Any node with a "group" attribute
-parser.find().find_by_attribute("group")
-
-# Nodes with group=2 (depthwise conv)
-parser.find().find_by_attribute("group", value=2)
-```
-
-#### `has_params() → ONNXQuery`
-
-Filters to nodes that have at least one weight tensor (initializer input).
-
-```python
-weighted = parser.find().find_by_op_type("Conv").has_params()
-```
-
-### Traversal Methods
-
-#### `children() → ONNXQuery`
-
-Returns all nodes that consume any output produced by the current selection (one hop forward).
-
-```python
-next_layer = query.children()
-```
-
-#### `parents() → ONNXQuery`
-
-Returns all nodes that produce any input consumed by the current selection (one hop backward).
-
-```python
-prev_layer = query.parents()
-```
-
-#### `ancestors(max_depth: int = 100) → ONNXQuery`
-
-Returns all transitive parent nodes up to `max_depth` hops away. The current nodes are **not** included.
-
-```python
-all_predecessors = query.ancestors()
-close_predecessors = query.ancestors(max_depth=3)
-```
-
-#### `descendants(max_depth: int = 100) → ONNXQuery`
-
-Returns all transitive child nodes up to `max_depth` hops away. The current nodes are **not** included.
-
-```python
-all_successors = query.descendants()
-```
-
-### Entry / Exit Shortcuts
-
-#### `entry_nodes → ONNXQuery` *(property)*
-
-Returns nodes whose inputs include at least one graph-level input.
-
-```python
-first_ops = parser.find().entry_nodes
-```
-
-#### `output_nodes → ONNXQuery` *(property)*
-
-Returns nodes whose outputs include at least one graph-level output.
-
-```python
-last_ops = parser.find().output_nodes
-```
-
-### Tensor / Parameter Access
-
-#### `tensor(name: str = None) → Any`
-
-Returns weight tensor(s) for the selected nodes as NumPy arrays.
-
-- If `name` is provided: returns that specific tensor (or `None` if not found).
-- If exactly **one** node is selected: returns `{param_name: array, ...}`.
-- If **multiple** nodes are selected: returns `{node_name: {param_name: array}, ...}`.
-
-```python
-# Get a tensor by name directly
-w = query.tensor("conv1.weight")
-
-# Get all weights for a single selected node
-params = parser.find().find_by_name("Conv_0", exact=True).tensor()
-```
-
-#### `single_tensor → np.ndarray` *(property)*
-
-Returns the single weight tensor for a single selected node. Raises `ValueError` if the selection contains more or fewer than one node, or if the node has multiple or no tensors.
-
-```python
-weight = parser.find().find_by_name("Conv_0", exact=True).single_tensor
-```
-
-### Pattern Matching Integration
-
-#### `matches(pattern: Pattern) → ONNXQuery`
-
-Returns the subset of nodes from the current selection whose subgraphs match `pattern`. This is the preferred way to do bulk pattern matching across many nodes.
-
-```python
-x = Pattern.any()
-silu_nodes = parser.find().find_by_op_type("Mul").matches(Pattern.silu(x))
-```
-
-### Set Operations
-
-#### `union(other: ONNXQuery) → ONNXQuery`
-
-Returns all nodes present in `self` **or** `other`, deduplicated.
-
-#### `intersection(other: ONNXQuery) → ONNXQuery`
-
-Returns nodes present in both `self` **and** `other`.
-
-#### `difference(other: ONNXQuery) → ONNXQuery`
-
-Returns nodes present in `self` but **not** in `other`.
-
-```python
-a = parser.find().find_by_op_type("Relu")
-b = parser.find().find_by_op_type("Conv").children().find_by_op_type("Relu")
-
-only_in_a = a.difference(b)
-all_relus = a.union(b)
-shared = a.intersection(b)
-```
-
-### Accessors and Helpers
-
-| Method / Property     | Returns              | Description                                             |
-|-----------------------|----------------------|---------------------------------------------------------|
-| `count()`             | `int`                | Number of nodes in the current selection                |
-| `is_empty()`          | `bool`               | True if the selection is empty                          |
-| `op_types()`          | `list[str]`          | Deduplicated list of op types in the selection          |
-| `first()`             | `NodeProto` or None  | First node, or `None` if empty                          |
-| `last()`              | `NodeProto` or None  | Last node, or `None` if empty                           |
-| `single_node`         | `NodeProto`          | The single selected node; raises if count ≠ 1           |
-| `__iter__`            | iterator             | Iterate over selected `NodeProto` objects               |
-| `__len__`             | `int`                | Same as `count()`                                       |
-| `__getitem__(i)`      | `ONNXQuery`          | Slice or index the selection                            |
-
----
-
-## `Pattern`
-
-A lightweight DSL for describing ONNX subgraph structures. Patterns are composable and can be built using arithmetic operators, class methods, and helper constructors.
-
-### Named Constructors
-
-#### `Pattern.any() → Pattern`
-
-Wildcard that matches any node regardless of op type.
-
-```python
-x = Pattern.any()
-```
-
-#### `Pattern.const(value) → Pattern`
-
-Matches a constant or initializer tensor whose value is approximately equal to `value` (tolerance `1e-3`).
-
-```python
-half = Pattern.const(0.5)
-```
-
-#### `Pattern.op(op_type, *input_patterns) → Pattern`
-
-Matches a node with the given `op_type`, optionally constraining its parent nodes via `input_patterns`.
-
-```python
-erf_of_x = Pattern.op("Erf", Pattern.any())
-```
-
-Patterns created with `Pattern.op` can also be used as unary functions by calling them:
-
-```python
-relu = Pattern.op("Relu")
-applied = relu(Pattern.any())   # same as Pattern.op("Relu", Pattern.any())
-```
-
-> **Note:** A pattern can only be called as a unary function if it has no existing inputs. Use `Pattern.op(op_type, *inputs)` directly for multi-input patterns.
-
-### Operator Overloads (DSL Sugar)
-
-You can compose patterns using standard Python operators:
-
-| Expression      | Resulting Pattern |
-|-----------------|-------------------|
-| `a + b`         | `Add(a, b)`       |
-| `a * b`         | `Mul(a, b)`       |
-| `a ** b`        | `Pow(a, b)`       |
-| `a - b`         | `Sub(a, b)`       |
-| `a / b`         | `Div(a, b)`       |
-| `-a`            | `Neg(a)`          |
-
-Raw Python scalars are automatically coerced to `Pattern.const(value)`:
-
-```python
-x = Pattern.any()
-cube = x ** 3.0    # equivalent to x ** Pattern.const(3.0)
-```
-
-### Built-in Activation Patterns
-
-Commonly used activation functions are available as class methods. All accept a `Pattern` argument representing the input.
-
-| Method                         | Activation                |
-|--------------------------------|---------------------------|
-| `Pattern.relu(x)`              | ReLU                      |
-| `Pattern.relu6(x)`             | ReLU6 (Clip 0–6)          |
-| `Pattern.sigmoid(x)`           | Sigmoid                   |
-| `Pattern.tanh(x)`              | Tanh                      |
-| `Pattern.leaky_relu(x)`        | LeakyReLU                 |
-| `Pattern.elu(x)`               | ELU                       |
-| `Pattern.selu(x)`              | SELU                      |
-| `Pattern.softplus(x)`          | Softplus                  |
-| `Pattern.softsign(x)`          | Softsign                  |
-| `Pattern.hardsigmoid(x)`       | HardSigmoid               |
-| `Pattern.hardswish(x)`         | HardSwish (`x * σ_hard(x)`) |
-| `Pattern.silu(x)`              | SiLU (`x * sigmoid(x)`)  |
-| `Pattern.swish(x)`             | Swish (alias of SiLU)     |
-| `Pattern.gelu(x)`              | GELU (erf approximation)  |
-| `Pattern.gelu_tanh(x)`         | GELU (tanh approximation) |
-| `Pattern.mish(x)`              | Mish (`x * tanh(softplus(x))`) |
-| `Pattern.softmax(x)`           | Softmax                   |
-| `Pattern.log_softmax(x)`       | LogSoftmax                |
-| `Pattern.prelu(x, slope)`      | PReLU                     |
-| `Pattern.thresholded_relu(x)`  | ThresholdedReLU           |
-
-### Example: Building a Custom Pattern
-
-```python
-x = Pattern.any()
-
-# Manual GELU (erf form)
-gelu = x * (Pattern.op("Erf")(x / Pattern.const(1.41421356237)) + Pattern.const(1.0)) * Pattern.const(0.5)
-
-# Or use the built-in helper
-gelu = Pattern.gelu(x)
-```
-
----
-
-## `Pattern.detect`
-
-Matches a `Pattern` against a specific subgraph rooted at a given node, using DFS with commutativity support for `Add` and `Mul` nodes.
-
-```python
-detector = Pattern.detect(model, start_node="MatMul_0")
-result = detector.match(pattern)
-```
-
-### Constructor
-
-```python
-Pattern.detect(model, start_node=None, end_node=None)
-```
-
-| Parameter    | Type                         | Description                                                     |
-|--------------|------------------------------|-----------------------------------------------------------------|
-| `model`      | `ModelProto` or `_GraphShim` | The ONNX model to search in                                     |
-| `start_node` | `str` or `NodeProto`         | Root of the subgraph to check (name string or proto object)     |
-| `end_node`   | `str` or `NodeProto`         | Optional stop condition — branch succeeds when this node is reached |
-
-### `match(pattern: Pattern) → bool`
-
-Returns `True` if the subgraph rooted at `start_node` matches `pattern`.
-
-```python
-x = Pattern.any()
-detector = Pattern.detect(model, start_node="Mul_5")
-print(detector.match(Pattern.silu(x)))  # True or False
-```
-
-### `find_all(pattern: Pattern) → list[NodeProto]`
-
-Scans nodes for all subgraph matches against `pattern`. If `start_node` was provided, only descendants of that node are scanned; otherwise the entire graph is searched.
-
-```python
-detector = Pattern.detect(model)
-all_gelus = detector.find_all(Pattern.gelu(Pattern.any()))
-```
-
----
-
-## Recipes
-
-### Find all depthwise convolutions
-
-```python
-parser = ONNXParser("model.onnx")
-dw_convs = parser.find().find_by_op_type("Conv").find_by_attribute("group", value=-1)
-# Note: group=in_channels for depthwise; use find_by_attribute("group") to list all grouped convs
-```
-
-### Retrieve weights of a specific layer
-
-```python
-conv_node = parser.find().find_by_name("features.0.0", exact=True)
-params = conv_node.tensor()
-# {"features.0.0.weight": array(...), "features.0.0.bias": array(...)}
-```
-
-### Find all SiLU / Swish activations in the graph
-
-```python
-x = Pattern.any()
-swish_muls = (
-    parser.find()
-    .find_by_op_type("Mul")
-    .matches(Pattern.silu(x))
-)
-print(f"Found {swish_muls.count()} SiLU/Swish activation(s)")
-```
-
-### Walk from graph inputs to the first Conv
-
-```python
-entry = parser.find().entry_nodes
-first_conv = entry.descendants().find_by_op_type("Conv").first()
-```
-
-### Check whether any GELU variants exist
-
-```python
-x = Pattern.any()
-detector = Pattern.detect(parser.model)
-
-has_gelu     = bool(detector.find_all(Pattern.gelu(x)))
-has_gelu_approx = bool(detector.find_all(Pattern.gelu_tanh(x)))
-```
-
----
-
-## API Reference Summary
-
-### `ONNXParser`
-
-| Method                                     | Returns        |
-|--------------------------------------------|----------------|
-| `ONNXParser(onnx_path)`                    | instance       |
-| `find()`                                   | `ONNXQuery`    |
-| `pattern_detect(pattern, start_node, end_node)` | `bool`    |
-| `summary()`                                | `str`          |
-
-### `ONNXQuery`
-
-| Method / Property                          | Returns        |
-|--------------------------------------------|----------------|
-| `find_by_op_type(op_type)`                 | `ONNXQuery`    |
-| `find_by_name(name, exact=False)`          | `ONNXQuery`    |
-| `find_by_tensor(tensor_name)`              | `ONNXQuery`    |
-| `find_by_param_name(name, exact=False)`    | `ONNXQuery`    |
-| `find_by_attribute(attr_name, value=None)` | `ONNXQuery`    |
-| `has_params()`                             | `ONNXQuery`    |
-| `children()`                               | `ONNXQuery`    |
-| `parents()`                                | `ONNXQuery`    |
-| `ancestors(max_depth=100)`                 | `ONNXQuery`    |
-| `descendants(max_depth=100)`               | `ONNXQuery`    |
-| `entry_nodes`                              | `ONNXQuery`    |
-| `output_nodes`                             | `ONNXQuery`    |
-| `tensor(name=None)`                        | `dict` / array |
-| `single_tensor`                            | `np.ndarray`   |
-| `matches(pattern)`                         | `ONNXQuery`    |
-| `union(other)`                             | `ONNXQuery`    |
-| `intersection(other)`                      | `ONNXQuery`    |
-| `difference(other)`                        | `ONNXQuery`    |
-| `count()`                                  | `int`          |
-| `is_empty()`                               | `bool`         |
-| `op_types()`                               | `list[str]`    |
-| `first()`                                  | `NodeProto`    |
-| `last()`                                   | `NodeProto`    |
-| `single_node`                              | `NodeProto`    |
-
-### `Pattern`
-
-| Constructor / Method                        | Description                                     |
-|---------------------------------------------|-------------------------------------------------|
-| `Pattern.any()`                             | Wildcard                                        |
-| `Pattern.const(value)`                      | Constant tensor matcher                         |
-| `Pattern.op(op_type, *inputs)`              | Op-type matcher with optional input constraints |
-| Arithmetic operators (`+`, `*`, `**`, etc.) | Compose Add / Mul / Pow / Sub / Div / Neg nodes |
-| Activation helpers (see table above)        | Pre-built common activation patterns            |
-
-### `Pattern.detect`
-
-| Method                    | Returns           |
-|---------------------------|-------------------|
-| `match(pattern)`          | `bool`            |
-| `find_all(pattern)`       | `list[NodeProto]` |
+Individual sub-loggers for targeted debugging:
+
+| Logger | Covers |
+|---|---|
+| `onnx_toolkit` | Parser load and summary |
+| `onnx_toolkit.query` | Filter and traversal steps |
+| `onnx_toolkit.pattern` | Pattern construction |
+| `onnx_toolkit.detect` | DFS walk, decisions, and backtracking |
+| `onnx_toolkit.rewriter` | Staged edits and build steps |
