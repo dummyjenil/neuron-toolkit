@@ -13,8 +13,6 @@ extra_javascript:
   - https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js
   - javascripts/extra.js
 
-extra_css:
-  - stylesheets/extra.css
 markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
