@@ -1,71 +1,103 @@
 """
 onnx_toolkit.pattern
 =====================
-Pattern DSL and PatternDetector for describing and matching ONNX subgraph
-structures.
+Pattern DSL, MatchResult, and PatternDetector.
 
-Pattern
--------
-Build patterns with arithmetic operators and named constructors, then hand
-them to PatternDetector.match().
+Pattern DSL
+-----------
+Build structural patterns using arithmetic operators and named constructors:
 
-    x    = Pattern.any()
-    gelu = x * (Pattern.op("Erf")(x / Pattern.const(1.41421356237))
-                + Pattern.const(1.0)) * Pattern.const(0.5)
+    x = Pattern.any().capture("x")
+    p = Pattern.gelu(x)
+
+    # Attribute constraint (exact value or callable predicate)
+    depthwise = Pattern.op("Conv").where(group=lambda g: g > 1)
+
+    # Union: match any of several alternatives
+    act = Pattern.any_of(Pattern.relu(x), Pattern.gelu(x))
+
+    # Shape / dtype constraints
+    p = Pattern.any().with_output_rank(2).with_dtype("float16")
+
+MatchResult
+-----------
+Returned by PatternDetector.match() on success:
+
+    result.start    – NodeProto where the match began
+    result.end      – NodeProto boundary (or start if no end_node given)
+    result.nodes    – all NodeProtos visited during DFS (match subgraph)
+    result.bindings – {capture_name: NodeProto} for every .capture() call
 
 PatternDetector
 ---------------
-Replaces the previous nested ``Pattern.detect`` class.  Constructed from a
-model (or _GraphShim) plus a mandatory *start_node* and an optional
-*end_node*.
+    detector = PatternDetector(model_or_shim, start_node, end_node=None)
+    result   = detector.match(pattern)       # → MatchResult | None
+    results  = detector.find_all(pattern)    # → List[MatchResult]
 
 End-node contract
-~~~~~~~~~~~~~~~~~
-The *end_node* is the **exclusive boundary** of the subgraph: it is the first
-node the DFS is *not* allowed to enter.  Whenever the traversal would step
-into a parent that is exactly *end_node*, that branch is treated as
-successfully terminated — the pattern input at that position is considered
-satisfied without further recursion.
-
-This makes the semantics concrete and graph-theoretically sound:
-
-  • The matched subgraph consists of all nodes visited between *start_node*
-    (inclusive) and *end_node* (exclusive).
-  • Callers can supply *end_node* to prevent the match from "leaking" into
-    upstream subgraphs they don't care about.
-
-match() return value
-~~~~~~~~~~~~~~~~~~~~
-``match()`` previously returned ``bool``.  It now returns the **end node**
-(``NodeProto``) when a match is found, or ``None`` on failure.
-
-  • If no *end_node* was provided the successful match terminates at a leaf
-    (graph input / initializer), and ``match()`` returns the *start_node*
-    itself so the caller still gets a concrete node back.
-  • If an *end_node* was provided and the DFS reaches it, ``match()``
-    returns that ``NodeProto``.
-
-Logging
--------
-  onnx_toolkit.pattern  – Pattern construction
-  onnx_toolkit.detect   – PatternDetector DFS walk & decisions
+-----------------
+*end_node* is an **exclusive upstream boundary**.  When DFS would step into
+a parent that IS end_node, that branch is immediately satisfied without
+recursing into end_node.  The matched subgraph is {start_node … up-to but
+not including end_node}.
 """
 
 from __future__ import annotations
 
 import itertools
 import logging
-from typing import Any, Dict, FrozenSet, List, Optional, Set, Union
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, FrozenSet, List, Optional, Set, Union
 
 import numpy as np
 from onnx import ModelProto, numpy_helper
 from onnx.onnx_pb import NodeProto
 
 from ._types import TensorMap
-from ._utils import _GraphShim
+from ._utils import _GraphShim, _attr_value, _node_attrs, ShapeInfo
 
-logger_pattern = logging.getLogger("onnx_toolkit.pattern")
-logger_detect  = logging.getLogger("onnx_toolkit.detect")
+log_p = logging.getLogger("onnx_toolkit.pattern")
+log_d = logging.getLogger("onnx_toolkit.detect")
+
+# Sentinel op strings (never appear in real ONNX graphs)
+_WILDCARD  = "__any__"
+_ANY_OF    = "__any_of__"
+_CONST_PAT = "__const__"
+
+
+# ===========================================================================
+# MatchResult
+# ===========================================================================
+
+@dataclass
+class MatchResult:
+    """
+    Returned by PatternDetector.match() when a pattern matches.
+
+    Attributes
+    ----------
+    start    : NodeProto          – root of the match (the start_node given to PatternDetector)
+    end      : NodeProto          – terminal boundary node (end_node if provided, else start)
+    nodes    : list[NodeProto]    – every node visited during the DFS, in visit order
+    bindings : dict[str, NodeProto] – named captures populated by Pattern.capture()
+    """
+    start:    NodeProto
+    end:      NodeProto
+    nodes:    List[NodeProto]               = field(default_factory=list)
+    bindings: Dict[str, NodeProto]          = field(default_factory=dict)
+
+    def as_query(self) -> "ONNXQuery":  # type: ignore[name-defined]
+        """
+        Return the matched subgraph as an ONNXQuery for further analysis.
+
+        Weight tensors are available only when this MatchResult was produced
+        by ``ONNXQuery.match_results()`` (which attaches the parser's
+        tensor_map automatically).  Results from a bare
+        ``PatternDetector.match()`` call will have an empty tensor_map.
+        """
+        from .query import ONNXQuery  # local import — avoids circular dependency
+        tm: TensorMap = getattr(self, "_tensor_map", {})
+        return ONNXQuery(list(self.nodes), tm, list(self.nodes))
 
 
 # ===========================================================================
@@ -76,35 +108,55 @@ class Pattern:
     """
     Lightweight DSL for describing ONNX subgraph structures.
 
-    Basic operators
-    ---------------
-    ``+``   → Add node
-    ``*``   → Mul node
-    ``**``  → Pow node
-    ``-``   → Sub node  (or unary Neg)
-    ``/``   → Div node
-    calling a Pattern → unary wrapper
-
-    Wildcards
+    Operators
     ---------
-    ``Pattern.any()``      – match any node regardless of op type.
-    ``Pattern.const(v)``   – match a constant tensor whose value ≈ v.
-    ``Pattern.op("Relu")`` – match a specific op type.
+    +, -, *, /, **     → Add / Sub / Mul / Div / Pow nodes
+    -x                 → Neg node
+    pat(x)             → unary application: Pattern.op("Relu")(x)
+
+    Constructors
+    ------------
+    Pattern.any()           wildcard — matches any single node
+    Pattern.const(v)        matches a constant tensor ≈ v
+    Pattern.op(op, *inputs) matches a specific op type
+    Pattern.any_of(*pats)   union — succeeds if any alternative matches
+
+    Modifiers (return a new Pattern — do not mutate)
+    ---------
+    .capture(name)          bind matched node to *name* in MatchResult.bindings
+    .where(**constraints)   attribute constraints; values may be plain values
+                            or single-argument callables acting as predicates
+    .with_output_rank(r)    shape constraint: first output must have rank *r*
+    .with_dtype(dt)         dtype constraint: first output must have dtype *dt*
+                            (numpy dtype string, e.g. "float32")
+
+    Activation helpers
+    ------------------
+    Pattern.relu, sigmoid, tanh, leaky_relu, elu, selu, softplus, softsign,
+    hardsigmoid, hardswish, silu / swish, gelu, gelu_tanh, mish, relu6,
+    softmax, log_softmax, prelu, thresholded_relu
     """
 
     def __init__(
         self,
-        op: Optional[str] = None,
-        inputs: Optional[List["Pattern"]] = None,
-        value: Any = None,
+        op:           Optional[str]       = None,
+        inputs:       Optional[List["Pattern"]] = None,
+        value:        Any                 = None,
+        *,
+        _alternatives: Optional[List["Pattern"]] = None,
+        _capture:     Optional[str]       = None,
+        _constraints: Optional[Dict[str, Any]] = None,
+        _rank:        Optional[int]       = None,
+        _dtype:       Optional[str]       = None,
     ) -> None:
-        self.op: Optional[str] = op
-        self.inputs: List["Pattern"] = inputs or []
-        self.value: Any = value
-        logger_pattern.debug(
-            "Pattern created: op=%r, value=%r, #inputs=%d",
-            self.op, self.value, len(self.inputs),
-        )
+        self.op            = op
+        self.inputs        = inputs or []
+        self.value         = value
+        self._alternatives = _alternatives or []
+        self._capture      = _capture
+        self._constraints  = _constraints or {}
+        self._rank         = _rank
+        self._dtype        = _dtype
 
     # ------------------------------------------------------------------
     # Named constructors
@@ -112,211 +164,199 @@ class Pattern:
 
     @classmethod
     def any(cls) -> "Pattern":
-        """Wildcard: matches any node."""
-        logger_pattern.debug("Pattern.any() created")
-        return cls(op="*")
+        """Wildcard: matches any single node."""
+        return cls(op=_WILDCARD)
 
     @classmethod
     def const(cls, value: Any) -> "Pattern":
-        """Match a constant / initializer tensor equal to *value*."""
-        logger_pattern.debug("Pattern.const(%r) created", value)
-        return cls(value=value)
+        """Match a constant / initializer tensor ≈ *value*."""
+        return cls(op=_CONST_PAT, value=value)
 
     @classmethod
     def op(cls, op_type: str, *input_patterns: "Pattern") -> "Pattern":
-        """
-        Match a node with the given *op_type*, optionally constraining its
-        parents via *input_patterns*.
-        """
-        logger_pattern.debug(
-            "Pattern.op(%r) created with %d input pattern(s)",
-            op_type, len(input_patterns),
-        )
+        """Match a node with the given *op_type*, constraining its inputs."""
         return cls(op=op_type, inputs=list(input_patterns))
 
+    @classmethod
+    def any_of(cls, *alternatives: "Pattern") -> "Pattern":
+        """
+        Union pattern: succeeds if **any** of *alternatives* matches.
+        The first successful alternative wins; its bindings are kept.
+        """
+        if len(alternatives) < 2:
+            raise ValueError("any_of() requires at least 2 alternatives")
+        return cls(op=_ANY_OF, _alternatives=list(alternatives))
+
     # ------------------------------------------------------------------
-    # Operator overloads (DSL sugar)
+    # Modifiers
     # ------------------------------------------------------------------
 
-    def __add__(self, other: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.__add__: constructing Add pattern")
-        return Pattern("Add", [self, self._coerce(other)])
+    def capture(self, name: str) -> "Pattern":
+        """Bind the matched node to *name* in MatchResult.bindings."""
+        return Pattern(
+            self.op, list(self.inputs), self.value,
+            _alternatives=list(self._alternatives),
+            _capture=name,
+            _constraints=dict(self._constraints),
+            _rank=self._rank, _dtype=self._dtype,
+        )
 
-    def __radd__(self, other: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.__radd__: constructing Add pattern (reversed)")
-        return Pattern("Add", [self._coerce(other), self])
+    def where(self, **constraints: Any) -> "Pattern":
+        """
+        Add attribute constraints.  Each keyword is an attribute name;
+        the value is either a literal (checked with ==) or a callable
+        predicate ``fn(attr_value) -> bool``.
 
-    def __mul__(self, other: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.__mul__: constructing Mul pattern")
-        return Pattern("Mul", [self, self._coerce(other)])
+        Example::
 
-    def __rmul__(self, other: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.__rmul__: constructing Mul pattern (reversed)")
-        return Pattern("Mul", [self._coerce(other), self])
+            Pattern.op("Conv").where(group=lambda g: g > 1)
+            Pattern.op("Gather").where(axis=0)
+        """
+        merged = {**self._constraints, **constraints}
+        return Pattern(
+            self.op, list(self.inputs), self.value,
+            _alternatives=list(self._alternatives),
+            _capture=self._capture,
+            _constraints=merged,
+            _rank=self._rank, _dtype=self._dtype,
+        )
 
-    def __pow__(self, power: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.__pow__: constructing Pow pattern")
-        return Pattern("Pow", [self, self._coerce(power)])
+    def with_output_rank(self, rank: int) -> "Pattern":
+        """Require the node's first output to have the given tensor rank."""
+        return Pattern(
+            self.op, list(self.inputs), self.value,
+            _alternatives=list(self._alternatives),
+            _capture=self._capture,
+            _constraints=dict(self._constraints),
+            _rank=rank, _dtype=self._dtype,
+        )
 
-    def __sub__(self, other: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.__sub__: constructing Sub pattern")
-        return Pattern("Sub", [self, self._coerce(other)])
+    def with_dtype(self, dtype: str) -> "Pattern":
+        """
+        Require the node's first output to have *dtype* (numpy string,
+        e.g. ``"float32"``, ``"float16"``).
+        """
+        return Pattern(
+            self.op, list(self.inputs), self.value,
+            _alternatives=list(self._alternatives),
+            _capture=self._capture,
+            _constraints=dict(self._constraints),
+            _rank=self._rank, _dtype=dtype,
+        )
 
-    def __rsub__(self, other: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.__rsub__: constructing Sub pattern (reversed)")
-        return Pattern("Sub", [self._coerce(other), self])
+    # ------------------------------------------------------------------
+    # Arithmetic DSL
+    # ------------------------------------------------------------------
 
-    def __truediv__(self, other: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.__truediv__: constructing Div pattern")
-        return Pattern("Div", [self, self._coerce(other)])
-
-    def __rtruediv__(self, other: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.__rtruediv__: constructing Div pattern (reversed)")
-        return Pattern("Div", [self._coerce(other), self])
-
+    def __add__(self, other: Any) -> "Pattern":
+        return Pattern("Add", [self, _coerce(other)])
+    def __radd__(self, other: Any) -> "Pattern":
+        return Pattern("Add", [_coerce(other), self])
+    def __mul__(self, other: Any) -> "Pattern":
+        return Pattern("Mul", [self, _coerce(other)])
+    def __rmul__(self, other: Any) -> "Pattern":
+        return Pattern("Mul", [_coerce(other), self])
+    def __pow__(self, power: Any) -> "Pattern":
+        return Pattern("Pow", [self, _coerce(power)])
+    def __sub__(self, other: Any) -> "Pattern":
+        return Pattern("Sub", [self, _coerce(other)])
+    def __rsub__(self, other: Any) -> "Pattern":
+        return Pattern("Sub", [_coerce(other), self])
+    def __truediv__(self, other: Any) -> "Pattern":
+        return Pattern("Div", [self, _coerce(other)])
+    def __rtruediv__(self, other: Any) -> "Pattern":
+        return Pattern("Div", [_coerce(other), self])
     def __neg__(self) -> "Pattern":
-        logger_pattern.debug("Pattern.__neg__: constructing Neg pattern")
         return Pattern("Neg", [self])
 
-    def __call__(self, x: "Pattern") -> "Pattern":
-        """Apply this pattern as a unary function: ``Pattern.op("Relu")(x)``."""
-        logger_pattern.debug(
-            "Pattern.__call__: applying %r as unary to input", self.op
-        )
+    def __call__(self, x: Any) -> "Pattern":
+        """Unary application: ``Pattern.op("Relu")(x)``."""
         if self.inputs:
-            logger_pattern.error(
-                "Pattern.__call__: pattern %r already has %d input(s); cannot call again",
-                self.op, len(self.inputs),
-            )
             raise ValueError(
-                f"Pattern '{self.op}' already has {len(self.inputs)} input(s); "
-                "cannot call again. Use Pattern.op(op_type, *inputs) for multi-input patterns."
+                f"Pattern '{self.op}' already has inputs; "
+                "use Pattern.op(op_type, *inputs) for multi-input patterns."
             )
-        return Pattern(self.op, [self._coerce(x)])
+        return Pattern(
+            self.op, [_coerce(x)], self.value,
+            _alternatives=list(self._alternatives),
+            _capture=self._capture,
+            _constraints=dict(self._constraints),
+            _rank=self._rank, _dtype=self._dtype,
+        )
 
     # ------------------------------------------------------------------
-    # Activation function patterns
+    # Activation helpers
     # ------------------------------------------------------------------
 
     @classmethod
     def relu(cls, x: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.relu() created")
         return cls.op("Relu")(x)
-
     @classmethod
     def sigmoid(cls, x: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.sigmoid() created")
         return cls.op("Sigmoid")(x)
-
     @classmethod
     def tanh(cls, x: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.tanh() created")
         return cls.op("Tanh")(x)
-
     @classmethod
     def leaky_relu(cls, x: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.leaky_relu() created")
         return cls.op("LeakyRelu")(x)
-
     @classmethod
     def elu(cls, x: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.elu() created")
         return cls.op("Elu")(x)
-
     @classmethod
     def selu(cls, x: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.selu() created")
         return cls.op("Selu")(x)
-
     @classmethod
     def softplus(cls, x: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.softplus() created")
         return cls.op("Softplus")(x)
-
     @classmethod
     def softsign(cls, x: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.softsign() created")
         return cls.op("Softsign")(x)
-
     @classmethod
     def hardsigmoid(cls, x: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.hardsigmoid() created")
         return cls.op("HardSigmoid")(x)
-
     @classmethod
     def hardswish(cls, x: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.hardswish() created")
         return x * cls.hardsigmoid(x)
-
     @classmethod
     def silu(cls, x: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.silu() created")
         return x * cls.sigmoid(x)
-
     @classmethod
     def swish(cls, x: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.swish() created")
         return x * cls.sigmoid(x)
-
     @classmethod
     def gelu(cls, x: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.gelu() created")
-        return (
-            x
-            * (cls.op("Erf")(x / cls.const(1.41421356237)) + cls.const(1.0))
-            * cls.const(0.5)
-        )
-
+        return x * (cls.op("Erf")(x / cls.const(1.41421356237)) + cls.const(1.0)) * cls.const(0.5)
     @classmethod
     def gelu_tanh(cls, x: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.gelu_tanh() created")
         return cls.const(0.5) * x * (
-            cls.const(1.0)
-            + cls.tanh(
-                cls.const(0.7978845608)
-                * (x + cls.const(0.044715) * (x ** cls.const(3.0)))
+            cls.const(1.0) + cls.tanh(
+                cls.const(0.7978845608) * (x + cls.const(0.044715) * (x ** cls.const(3.0)))
             )
         )
-
     @classmethod
     def mish(cls, x: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.mish() created")
         return x * cls.tanh(cls.softplus(x))
-
     @classmethod
     def relu6(cls, x: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.relu6() created")
-        return Pattern("Clip", [cls._coerce(x), cls.const(0.0), cls.const(6.0)])
-
+        return Pattern("Clip", [_coerce(x), cls.const(0.0), cls.const(6.0)])
     @classmethod
     def softmax(cls, x: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.softmax() created")
         return cls.op("Softmax")(x)
-
     @classmethod
     def log_softmax(cls, x: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.log_softmax() created")
         return cls.op("LogSoftmax")(x)
-
     @classmethod
     def prelu(cls, x: "Pattern", slope: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.prelu() created")
         return cls.op("PRelu", x, slope)
-
     @classmethod
     def thresholded_relu(cls, x: "Pattern") -> "Pattern":
-        logger_pattern.debug("Pattern.thresholded_relu() created")
         return cls.op("ThresholdedRelu")(x)
 
-    # ------------------------------------------------------------------
 
-    @staticmethod
-    def _coerce(x: Any) -> "Pattern":
-        if isinstance(x, Pattern):
-            logger_pattern.debug("_coerce: value is already a Pattern (op=%r)", x.op)
-            return x
-        logger_pattern.debug("_coerce: wrapping raw value %r into Pattern.const", x)
-        return Pattern(value=x)
+def _coerce(x: Any) -> Pattern:
+    """Wrap a raw value in Pattern.const if it isn't already a Pattern."""
+    return x if isinstance(x, Pattern) else Pattern(op=_CONST_PAT, value=x)
 
 
 # ===========================================================================
@@ -325,417 +365,357 @@ class Pattern:
 
 class PatternDetector:
     """
-    Match a :class:`Pattern` against a specific subgraph rooted at
-    *start_node*.
+    Match a :class:`Pattern` against a subgraph of an ONNX model.
 
     Parameters
     ----------
     model      : ModelProto or _GraphShim
-                 The ONNX model (or a shim produced by ONNXQuery.matches).
-    start_node : str or NodeProto
-                 Root of the subgraph to match (inclusive).
-    end_node   : str or NodeProto, optional
-                 Exclusive boundary of the subgraph.  When the DFS traversal
-                 would step into a parent that is exactly *end_node*, that
-                 branch is treated as successfully terminated — the pattern
-                 input at that position is satisfied without further
-                 recursion.  This prevents the match from "leaking" into
-                 upstream subgraphs the caller does not want to include.
+    start_node : str | NodeProto  – root of the region to match (inclusive)
+    end_node   : str | NodeProto  – exclusive upstream boundary (optional)
 
     End-node contract
     -----------------
-    *end_node* is **exclusive**: it is never itself part of the matched
-    subgraph.  Think of it as the first node *upstream* of the region you
-    care about.  For example::
+    When DFS would step into a parent that IS end_node, the branch is
+    immediately satisfied.  end_node is never part of the matched subgraph.
 
         [end_node] → [A] → [B] → [start_node]
+        matched subgraph = {start_node, B, A}
 
-    Calling ``match()`` with this setup will match the subgraph
-    {start_node, B, A} and stop before entering end_node.
-
-    match() return value
-    --------------------
-    Returns the **terminating** ``NodeProto`` on success, or ``None`` on
-    failure:
-
-    * If *end_node* was given and the DFS reached it: returns *end_node*.
-    * If no *end_node* was given (match terminates at a graph leaf):
-      returns *start_node* so the caller always gets a concrete node.
-
-    Integration with ONNXQuery
-    --------------------------
-    Prefer ``ONNXQuery.matches(pattern)`` for bulk matching; it calls this
-    class internally and shares the output→node map across all candidates.
-
-    Example
-    -------
-    >>> x        = Pattern.any()
-    >>> detector = PatternDetector(model, start_node="MatMul_0")
-    >>> end      = detector.match(x * Pattern.op("Sigmoid")(x))
-    >>> if end:
-    ...     print("Pattern ends at:", end.name)
+    match() → MatchResult | None
+    find_all() → List[MatchResult]
     """
 
     def __init__(
         self,
-        model: Union[ModelProto, _GraphShim],
+        model:      Union[ModelProto, _GraphShim],
         start_node: Optional[Union[str, NodeProto]] = None,
-        end_node: Optional[Union[str, NodeProto]] = None,
+        end_node:   Optional[Union[str, NodeProto]] = None,
     ) -> None:
         if isinstance(model, _GraphShim):
-            logger_detect.debug("PatternDetector: initialising from _GraphShim")
-            self._nodes = model.nodes
+            self._nodes      = model.nodes
             self._tensor_map = model.tensor_map
+            self._shape_info: ShapeInfo = model.shape_info
         else:
-            logger_detect.debug("PatternDetector: initialising from ModelProto")
-            self._nodes = list(model.graph.node)
-            self._tensor_map: TensorMap = {
+            self._nodes      = list(model.graph.node)
+            self._tensor_map = {
                 t.name: numpy_helper.to_array(t)
                 for t in model.graph.initializer
             }
+            self._shape_info = {}
 
-        # Build output → node map
-        self._output_to_node: Dict[str, NodeProto] = {}
-        for node in self._nodes:
-            for out in node.output:
-                self._output_to_node[out] = node
-        logger_detect.debug(
-            "PatternDetector: output→node map built (%d entries)",
-            len(self._output_to_node),
-        )
-
-        self.start: Optional[NodeProto] = self._resolve(start_node)
-        self.end:   Optional[NodeProto] = self._resolve(end_node)
-        logger_detect.debug(
-            "PatternDetector: start=%r, end=%r",
-            getattr(self.start, "name", None),
-            getattr(self.end,   "name", None),
-        )
+        self._output_to_node: Dict[str, NodeProto] = {
+            out: n for n in self._nodes for out in n.output
+        }
+        self.start = self._resolve(start_node)
+        self.end   = self._resolve(end_node)
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def match(self, pattern: Pattern) -> Optional[NodeProto]:
+    def match(self, pattern: Pattern) -> Optional[MatchResult]:
         """
-        Try to match *pattern* against the subgraph rooted at *start_node*.
+        Match *pattern* against the subgraph rooted at start_node.
 
-        Returns
-        -------
-        NodeProto
-            The terminating node of the match:
-
-            * *end_node* if it was provided and reached during DFS.
-            * *start_node* if no *end_node* was provided (match terminated
-              at a graph leaf).
-
-        None
-            The pattern did not match.
+        Returns a :class:`MatchResult` on success, ``None`` on failure.
+        The result's `.end` is end_node if it was reached, otherwise start_node.
         """
         if self.start is None:
-            logger_detect.debug("match(): start_node is None → None")
             return None
-        logger_detect.debug(
-            "match(): starting DFS from %r [%s]",
-            self.start.name, self.start.op_type,
+        bindings: Dict[str, NodeProto] = {}
+        visited:  List[NodeProto]      = []
+        ok = self._dfs(self.start, pattern, frozenset(), bindings, visited)
+        if not ok:
+            return None
+        terminal = self.end if self.end is not None else self.start
+        return MatchResult(
+            start    = self.start,
+            end      = terminal,
+            nodes    = visited,
+            bindings = bindings,
         )
-        result = self._dfs(self.start, pattern, visited=frozenset())
-        if result:
-            # Return end_node when reached, otherwise start_node as the
-            # concrete anchor of a leaf-terminated match.
-            terminal = self.end if self.end is not None else self.start
-            logger_detect.debug(
-                "match() → MATCHED, terminal node=%r [%s]",
-                terminal.name, terminal.op_type,
-            )
-            return terminal
-        logger_detect.debug("match() → None (no match)")
-        return None
 
-    def find_all(self, pattern: Pattern) -> List[NodeProto]:
+    def find_all(self, pattern: Pattern) -> List[MatchResult]:
         """
-        Scan nodes for subgraph matches against *pattern*.
+        Scan all (or descendant) nodes for pattern matches.
 
-        If *start_node* was provided at construction time, only nodes
-        reachable as descendants of that node are scanned; otherwise the
-        entire graph is searched.
-
-        Returns a list of *start* nodes of each matching subgraph.
+        Returns one :class:`MatchResult` per matching start node.
+        Shares the output→node map across all candidates for efficiency.
         """
-        if self.start is not None:
-            logger_detect.debug(
-                "find_all(): scoping search to descendants of %r", self.start.name
-            )
-            descendants: Set[str] = set()
-            frontier = [self.start]
-            input_map: Dict[str, List[NodeProto]] = {}
-            for node in self._nodes:
-                for inp in node.input:
-                    input_map.setdefault(inp, []).append(node)
-            while frontier:
-                current = frontier.pop()
-                if current.name in descendants:
-                    continue
-                descendants.add(current.name)
-                for out in current.output:
-                    for child in input_map.get(out, []):
-                        if child.name not in descendants:
-                            frontier.append(child)
-            candidate_nodes = [n for n in self._nodes if n.name in descendants]
-            logger_detect.debug(
-                "find_all(): %d candidate node(s) within descendant scope",
-                len(candidate_nodes),
-            )
-        else:
-            logger_detect.debug(
-                "find_all(): no start_node, searching all %d nodes", len(self._nodes)
-            )
-            candidate_nodes = self._nodes
-
-        shim = _GraphShim(self._nodes, self._tensor_map)
-        matched: List[NodeProto] = []
-        for node in candidate_nodes:
+        candidates = self._descendant_nodes() if self.start is not None else self._nodes
+        shim = _GraphShim(self._nodes, self._tensor_map, self._shape_info)
+        results: List[MatchResult] = []
+        for node in candidates:
             if node is self.end:
                 continue
-            detector = PatternDetector(shim, start_node=node, end_node=self.end)
-            detector._output_to_node = self._output_to_node  # share map
-            if detector.match(pattern) is not None:
-                matched.append(node)
-
-        logger_detect.debug("find_all() → %d match(es)", len(matched))
-        return matched
+            det = PatternDetector(shim, start_node=node, end_node=self.end)
+            det._output_to_node = self._output_to_node  # share — no rebuild
+            r = det.match(pattern)
+            if r is not None:
+                results.append(r)
+        log_d.debug("find_all() → %d match(es)", len(results))
+        return results
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # Internal
     # ------------------------------------------------------------------
 
-    def _resolve(
-        self, node: Optional[Union[str, NodeProto]]
-    ) -> Optional[NodeProto]:
+    def _resolve(self, node: Optional[Union[str, NodeProto]]) -> Optional[NodeProto]:
         if node is None:
-            logger_detect.debug("_resolve(None) → None")
             return None
         if hasattr(node, "op_type"):
-            logger_detect.debug(
-                "_resolve: received NodeProto directly (%r [%s])",
-                node.name, node.op_type,
-            )
-            return node
+            return node  # type: ignore[return-value]
         for n in self._nodes:
             if n.name == node:
-                logger_detect.debug(
-                    "_resolve(%r): found node [%s]", node, n.op_type
-                )
                 return n
-        logger_detect.error("_resolve(%r): node NOT found in graph", node)
-        raise ValueError(f"Node not found: '{node}'")
+        raise ValueError(f"Node not found in graph: '{node}'")
+
+    def _descendant_nodes(self) -> List[NodeProto]:
+        """Collect all descendants of self.start (inclusive) via BFS."""
+        assert self.start is not None
+        input_map: Dict[str, List[NodeProto]] = {}
+        for n in self._nodes:
+            for inp in n.input:
+                input_map.setdefault(inp, []).append(n)
+        visited: Set[str] = set()
+        frontier = [self.start]
+        result: List[NodeProto] = []
+        while frontier:
+            cur = frontier.pop()
+            if cur.name in visited:
+                continue
+            visited.add(cur.name)
+            result.append(cur)
+            for out in cur.output:
+                for child in input_map.get(out, []):
+                    if child.name not in visited:
+                        frontier.append(child)
+        return result
+
+    # ------------------------------------------------------------------
+    # DFS core
+    # ------------------------------------------------------------------
 
     def _dfs(
         self,
-        node: NodeProto,
-        pattern: Pattern,
-        visited: FrozenSet[str],
+        node:     NodeProto,
+        pattern:  Pattern,
+        visited:  FrozenSet[str],
+        bindings: Dict[str, NodeProto],
+        trail:    List[NodeProto],
     ) -> bool:
-        logger_detect.debug(
-            "_dfs: node=%r [%s], pattern.op=%r, pattern.value=%r, "
-            "#pattern.inputs=%d, #visited=%d",
-            node.name, node.op_type,
-            pattern.op, pattern.value, len(pattern.inputs), len(visited),
-        )
+        """
+        Recursively match *pattern* against *node* and its upstream parents.
 
-        # ------------------------------------------------------------------
-        # End-node boundary check
-        #
-        # When the DFS arrives AT a node that is the declared end_node, it
-        # means the traversal has reached the exclusive boundary of the
-        # subgraph.  We treat this as a successful termination: the pattern
-        # input that pointed here is considered satisfied without inspecting
-        # end_node's own structure.  This is the correct graph-theoretic
-        # interpretation: end_node is the first node *outside* the region
-        # being matched.
-        # ------------------------------------------------------------------
+        *bindings* and *trail* are mutated in-place by successful branches
+        and restored on backtrack.
+        """
+        log_d.debug("_dfs: node=%r [%s] pattern.op=%r", node.name, node.op_type, pattern.op)
+
+        # ---- End-node boundary ------------------------------------------
         if self.end is not None and node is self.end:
-            logger_detect.debug(
-                "_dfs: reached end_node %r — boundary satisfied → True",
-                node.name,
-            )
+            log_d.debug("_dfs: boundary end_node %r → True", node.name)
             return True
 
-        # --- Constant / tensor leaf ---
-        if pattern.value is not None:
-            initializer_values = [
-                self._tensor_map[inp]
-                for inp in node.input
-                if inp and inp in self._tensor_map
-            ]
-            if not initializer_values:
-                if node.op_type == "Constant":
-                    for attr in node.attribute:
-                        if attr.name == "value":
-                            arr = numpy_helper.to_array(attr.t)
-                            match = bool(np.allclose(arr, pattern.value, atol=1e-3))
-                            logger_detect.debug(
-                                "_dfs: Constant node %r, checking value≈%r → %s",
-                                node.name, pattern.value, match,
-                            )
-                            return match
-                logger_detect.debug(
-                    "_dfs: pattern expects const %r but node %r [%s] has "
-                    "no initializer inputs and is not a Constant op → False",
-                    pattern.value, node.name, node.op_type,
-                )
-                return False
-            matched_const = any(
-                np.allclose(arr, pattern.value, atol=1e-3)
-                for arr in initializer_values
-            )
-            logger_detect.debug(
-                "_dfs: node %r has %d initializer input(s); "
-                "const match for %r → %s",
-                node.name, len(initializer_values), pattern.value, matched_const,
-            )
-            return matched_const
-
-        # --- Wildcard ---
-        if pattern.op in ("*", "Input"):
-            logger_detect.debug(
-                "_dfs: wildcard %r matches node %r [%s] → True",
-                pattern.op, node.name, node.op_type,
-            )
-            return True
-
-        # --- Op mismatch ---
-        if pattern.op and node.op_type != pattern.op:
-            logger_detect.debug(
-                "_dfs: op mismatch — expected %r, got %r for node %r → False",
-                pattern.op, node.op_type, node.name,
-            )
+        # ---- Union pattern ----------------------------------------------
+        if pattern.op == _ANY_OF:
+            for alt in pattern._alternatives:
+                # Snapshot bindings before trying each alternative
+                snap_b = dict(bindings)
+                snap_t = len(trail)
+                if self._dfs(node, alt, visited, bindings, trail):
+                    # Apply capture for the union node itself, if any
+                    if pattern._capture:
+                        bindings[pattern._capture] = node
+                    return True
+                # Restore on failure
+                bindings.clear()
+                bindings.update(snap_b)
+                del trail[snap_t:]
             return False
 
-        # No child constraints → op match is sufficient
-        if not pattern.inputs:
-            logger_detect.debug(
-                "_dfs: op %r matched node %r, no input constraints → True",
-                pattern.op, node.name,
-            )
+        # ---- Constant pattern -------------------------------------------
+        if pattern.op == _CONST_PAT:
+            return self._match_const(node, pattern.value)
+
+        # ---- Wildcard ---------------------------------------------------
+        if pattern.op == _WILDCARD:
+            if not self._check_shape_dtype(node, pattern):
+                return False
+            self._record(node, pattern, bindings, trail)
             return True
 
-        # Collect parent nodes
+        # ---- Op-type check ----------------------------------------------
+        if pattern.op is not None and node.op_type != pattern.op:
+            return False
+
+        # ---- Attribute constraints --------------------------------------
+        if not self._check_attrs(node, pattern):
+            return False
+
+        # ---- Shape / dtype constraints ----------------------------------
+        if not self._check_shape_dtype(node, pattern):
+            return False
+
+        # ---- No input constraints → match complete ----------------------
+        if not pattern.inputs:
+            self._record(node, pattern, bindings, trail)
+            return True
+
+        # ---- Gather parents (non-initializer edges) ---------------------
+        parents = self._parents(node, visited)
+
+        # Separate const-pattern inputs (satisfied by initializer edges)
+        # from structural patterns (require parent nodes).
+        non_const_pats: List[Pattern] = []
+        used_inits: Set[str] = set()
+
+        for pat in pattern.inputs:
+            if pat.op == _CONST_PAT:
+                if not self._match_init_const(node, pat.value, used_inits):
+                    return False
+            else:
+                non_const_pats.append(pat)
+
+        if len(parents) < len(non_const_pats):
+            return False
+
+        new_visited = visited | {node.name}
+
+        # ---- Commutative ops: try all permutations ----------------------
+        if node.op_type in ("Add", "Mul"):
+            ok = self._try_commutative(
+                parents, non_const_pats, new_visited, bindings, trail
+            )
+        else:
+            ok = self._try_ordered(
+                parents, non_const_pats, new_visited, bindings, trail
+            )
+
+        if ok:
+            self._record(node, pattern, bindings, trail)
+        return ok
+
+    # ------------------------------------------------------------------
+    # Match helpers
+    # ------------------------------------------------------------------
+
+    def _match_const(self, node: NodeProto, value: Any) -> bool:
+        """Check whether *node* is or carries a constant ≈ *value*."""
+        inits = [
+            self._tensor_map[inp]
+            for inp in node.input
+            if inp and inp in self._tensor_map
+        ]
+        if inits:
+            return any(np.allclose(a, value, atol=1e-3) for a in inits)
+        if node.op_type == "Constant":
+            for attr in node.attribute:
+                if attr.name == "value":
+                    return bool(np.allclose(numpy_helper.to_array(attr.t), value, atol=1e-3))
+        return False
+
+    def _match_init_const(
+        self, node: NodeProto, value: Any, used: Set[str]
+    ) -> bool:
+        """Satisfy one const-pattern input from node's initializer edges."""
+        for inp in node.input:
+            if inp and inp in self._tensor_map and inp not in used:
+                if np.allclose(self._tensor_map[inp], value, atol=1e-3):
+                    used.add(inp)
+                    return True
+        return False
+
+    def _check_attrs(self, node: NodeProto, pattern: Pattern) -> bool:
+        """Verify all attribute constraints stored in *pattern*."""
+        if not pattern._constraints:
+            return True
+        attrs = _node_attrs(node)
+        for attr_name, expected in pattern._constraints.items():
+            if attr_name not in attrs:
+                return False
+            actual = attrs[attr_name]
+            if callable(expected):
+                if not expected(actual):
+                    return False
+            else:
+                if actual != expected:
+                    return False
+        return True
+
+    def _check_shape_dtype(self, node: NodeProto, pattern: Pattern) -> bool:
+        """Verify rank / dtype constraints against the node's first output."""
+        if pattern._rank is None and pattern._dtype is None:
+            return True
+        if not node.output:
+            return False
+        first_out = node.output[0]
+        rank, dtype = self._shape_info.get(first_out, (None, None))
+        if pattern._rank is not None and rank != pattern._rank:
+            return False
+        if pattern._dtype is not None and dtype != pattern._dtype:
+            return False
+        return True
+
+    def _parents(
+        self, node: NodeProto, visited: FrozenSet[str]
+    ) -> List[NodeProto]:
+        """Collect unvisited parent nodes for non-initializer inputs."""
         parents: List[NodeProto] = []
         for inp in node.input:
-            if not inp:
+            if not inp or inp in self._tensor_map:
                 continue
             parent = self._output_to_node.get(inp)
             if parent and parent.name not in visited:
                 parents.append(parent)
-                logger_detect.debug(
-                    "_dfs: node %r input %r → parent %r [%s]",
-                    node.name, inp, parent.name, parent.op_type,
-                )
+        return parents
 
-        # Satisfy const-pattern inputs directly from initializer edges
-        unmatched_patterns: List[Pattern] = []
-        used_initializers: Set[str] = set()
-
-        for pat_idx, pat in enumerate(pattern.inputs):
-            if pat.value is not None:
-                logger_detect.debug(
-                    "_dfs: pattern input[%d] is const(%r); "
-                    "checking initializers of node %r",
-                    pat_idx, pat.value, node.name,
-                )
-                matched_init = False
-                for inp in node.input:
-                    if (
-                        inp
-                        and inp in self._tensor_map
-                        and inp not in used_initializers
-                    ):
-                        if np.allclose(self._tensor_map[inp], pat.value, atol=1e-3):
-                            used_initializers.add(inp)
-                            matched_init = True
-                            logger_detect.debug(
-                                "_dfs:   initializer %r ≈ %r → const MATCHED",
-                                inp, pat.value,
-                            )
-                            break
-                if not matched_init:
-                    logger_detect.debug(
-                        "_dfs:   no initializer matched const %r → False", pat.value
-                    )
-                    return False
-            else:
-                unmatched_patterns.append(pat)
-
-        if len(parents) < len(unmatched_patterns):
-            logger_detect.debug(
-                "_dfs: not enough parents (%d) for %d unmatched pattern(s) → False",
-                len(parents), len(unmatched_patterns),
-            )
-            return False
-
-        new_visited = visited | frozenset([node.name])
-
-        # Commutative ops: try all permutations
-        if node.op_type in ("Add", "Mul"):
-            logger_detect.debug(
-                "_dfs: commutative op %s on node %r; trying permutations "
-                "of %d parent(s) against %d non-const pattern(s)",
-                node.op_type, node.name, len(parents), len(unmatched_patterns),
-            )
-            return self._match_commutative(parents, unmatched_patterns, new_visited)
-
-        # Ordered match
-        logger_detect.debug(
-            "_dfs: ordered match for %d non-const pattern(s) against %d parent(s)",
-            len(unmatched_patterns), len(parents),
-        )
-        for pat_idx, (pat_child, parent) in enumerate(
-            zip(unmatched_patterns, parents)
-        ):
-            logger_detect.debug(
-                "_dfs:   pattern input[%d] vs parent %r [%s]",
-                pat_idx, parent.name, parent.op_type,
-            )
-            if not self._dfs(parent, pat_child, new_visited | frozenset([parent.name])):
-                logger_detect.debug(
-                    "_dfs:   ordered match failed at input[%d] → False", pat_idx
-                )
+    def _try_ordered(
+        self,
+        parents:   List[NodeProto],
+        patterns:  List[Pattern],
+        visited:   FrozenSet[str],
+        bindings:  Dict[str, NodeProto],
+        trail:     List[NodeProto],
+    ) -> bool:
+        for parent, pat in zip(parents, patterns):
+            snap_b = dict(bindings)
+            snap_t = len(trail)
+            if not self._dfs(parent, pat, visited | {parent.name}, bindings, trail):
+                bindings.clear(); bindings.update(snap_b)
+                del trail[snap_t:]
                 return False
-
-        logger_detect.debug(
-            "_dfs: all ordered inputs matched for node %r → True", node.name
-        )
         return True
 
-    def _match_commutative(
+    def _try_commutative(
         self,
-        parents: List[NodeProto],
-        pattern_inputs: List[Pattern],
-        visited: FrozenSet[str],
+        parents:   List[NodeProto],
+        patterns:  List[Pattern],
+        visited:   FrozenSet[str],
+        bindings:  Dict[str, NodeProto],
+        trail:     List[NodeProto],
     ) -> bool:
-        n_perms = 1
-        for i in range(len(parents), len(parents) - len(pattern_inputs), -1):
-            n_perms *= i
-        logger_detect.debug(
-            "_match_commutative: testing up to %d permutation(s) "
-            "of %d parent(s) vs %d pattern(s)",
-            n_perms, len(parents), len(pattern_inputs),
-        )
-        for perm_idx, perm in enumerate(
-            itertools.permutations(parents, len(pattern_inputs))
-        ):
-            logger_detect.debug(
-                "_match_commutative:   permutation[%d]: %s",
-                perm_idx, [p.name for p in perm],
-            )
+        for perm in itertools.permutations(parents, len(patterns)):
+            snap_b = dict(bindings)
+            snap_t = len(trail)
             if all(
-                self._dfs(p_node, pat, visited | frozenset([p_node.name]))
-                for p_node, pat in zip(perm, pattern_inputs)
+                self._dfs(p, pat, visited | {p.name}, bindings, trail)
+                for p, pat in zip(perm, patterns)
             ):
-                logger_detect.debug(
-                    "_match_commutative:   permutation[%d] succeeded → True", perm_idx
-                )
                 return True
-        logger_detect.debug("_match_commutative: no permutation matched → False")
+            bindings.clear(); bindings.update(snap_b)
+            del trail[snap_t:]
         return False
+
+    @staticmethod
+    def _record(
+        node:     NodeProto,
+        pattern:  Pattern,
+        bindings: Dict[str, NodeProto],
+        trail:    List[NodeProto],
+    ) -> None:
+        """Record a successful node visit (deduplicating the trail)."""
+        if not any(n is node for n in trail):
+            trail.append(node)
+        if pattern._capture:
+            bindings[pattern._capture] = node

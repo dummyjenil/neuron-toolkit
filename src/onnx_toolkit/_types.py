@@ -1,11 +1,6 @@
-"""
-onnx_toolkit._types
-====================
-Shared type aliases used across the package.
-"""
+"""onnx_toolkit._types — shared type aliases."""
 
 from typing import Dict
 import numpy as np
 
-# Weight tensors keyed by initializer name
 TensorMap = Dict[str, np.ndarray]
