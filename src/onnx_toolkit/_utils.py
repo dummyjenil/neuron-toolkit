@@ -34,29 +34,27 @@ _ONNX_DTYPE_TO_NP: dict[int, str] = {
 def _attr_value(attr: AttributeProto) -> object | None:
     """Extract a typed Python value from an ONNX AttributeProto."""
     t = attr.type
+    if t == AttributeProto.FLOAT:
+        return attr.f
+    if t == AttributeProto.INT:
+        return attr.i
+    if t == AttributeProto.STRING:
+        return attr.s.decode("utf-8")
+    if t == AttributeProto.TENSOR:
+        return to_array(attr.t)
+    if t == AttributeProto.FLOATS:
+        return list(attr.floats)
+    if t == AttributeProto.INTS:
+        return list(attr.ints)
+    if t == AttributeProto.STRINGS:
+        return [s.decode("utf-8") for s in attr.strings]
 
-    scalar_extractors: dict[int, object] = {
-        AttributeProto.FLOAT: attr.f,
-        AttributeProto.INT: attr.i,
-        AttributeProto.STRING: attr.s.decode("utf-8"),
-        AttributeProto.TENSOR: to_array(attr.t),
-        AttributeProto.FLOATS: list(attr.floats),
-        AttributeProto.INTS: list(attr.ints),
-        AttributeProto.STRINGS: [
-            s.decode("utf-8") for s in attr.strings
-        ],
-    }
-
-    value = scalar_extractors.get(t)
-
-    if value is None:
-        log.debug(
-            "_attr_value: unrecognised attribute type %s for %r",
-            t,
-            getattr(attr, "name", "?"),
-        )
-
-    return value
+    log.debug(
+        "_attr_value: unrecognised attribute type %s for %r",
+        t,
+        getattr(attr, "name", "?"),
+    )
+    return None
 
 def _node_attrs(node: NodeProto) -> dict[str, Any]:
     """Return all attributes of *node* as a plain dict."""

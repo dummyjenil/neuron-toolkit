@@ -7,13 +7,15 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import onnx
 from onnx import helper
 from onnx.onnx_pb import NodeProto
 
-from .parser import ONNXParser
+if TYPE_CHECKING:
+    from .parser import ONNXParser
+
 from .pattern import MatchResult
 
 log = logging.getLogger("onnx_toolkit.rewriter")
@@ -24,6 +26,8 @@ class GraphRewriter:
 
     def __init__(self, parser: ONNXParser) -> None:
         """Initialize with an ONNXParser instance."""
+        from .parser import ONNXParser
+
         if not isinstance(parser, ONNXParser):
             msg = "GraphRewriter requires an ONNXParser instance"
             raise TypeError(msg)

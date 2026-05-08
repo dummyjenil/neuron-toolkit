@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
+from typing import TYPE_CHECKING
 
 import onnx
 from onnx import ModelProto, numpy_helper
@@ -17,7 +18,9 @@ from onnx_toolkit._types import TensorMap
 from onnx_toolkit._utils import ShapeInfo, _build_shape_info
 from onnx_toolkit.pattern import MatchResult, Pattern, PatternDetector
 from onnx_toolkit.query import ONNXQuery
-from onnx_toolkit.rewriter import GraphRewriter
+
+if TYPE_CHECKING:
+    from onnx_toolkit.rewriter import GraphRewriter
 
 log = logging.getLogger("onnx_toolkit")
 
@@ -80,6 +83,8 @@ class ONNXParser:
 
     def rewriter(self) -> GraphRewriter:
         """Return a :class:`GraphRewriter` bound to this model."""
+        from onnx_toolkit.rewriter import GraphRewriter
+
         return GraphRewriter(self)
 
     def summary(self) -> str:

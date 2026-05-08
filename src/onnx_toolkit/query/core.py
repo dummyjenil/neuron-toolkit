@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterator, Sequence
 from functools import cached_property
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import networkx as nx
 import numpy as np
@@ -11,7 +11,9 @@ from onnx.onnx_pb import NodeProto
 
 from onnx_toolkit._types import TensorMap
 from onnx_toolkit._utils import ShapeInfo, _GraphShim, _node_attrs
-from onnx_toolkit.pattern import MatchResult, Pattern, PatternDetector
+
+if TYPE_CHECKING:
+    from onnx_toolkit.pattern import MatchResult, Pattern
 
 log = logging.getLogger("onnx_toolkit.query")
 
@@ -76,6 +78,40 @@ class ONNXQuery:
         """Filter nodes using a custom predicate."""
         return self._clone([n for n in self.nodes if predicate(n)])
 
+    def op(self, op_type: str) -> ONNXQuery:
+        """Alias for find_by_op_type."""
+        return self.find_by_op_type(op_type)
+
+    def name(self, name: str, *, exact: bool = False) -> ONNXQuery:
+        """Alias for find_by_name."""
+        return self.find_by_name(name, exact=exact)
+
+    def rank(self, rank: int) -> ONNXQuery:
+        """Filter nodes by their output tensor rank."""
+
+        def _match(n: NodeProto) -> bool:
+            if not n.output:
+                return False
+            r, _ = self.shape_info.get(n.output[0], (None, None))
+            return r == rank
+
+        return self.filter(_match)
+
+    def dtype(self, dtype: str) -> ONNXQuery:
+        """Filter nodes by their output tensor data type."""
+
+        def _match(n: NodeProto) -> bool:
+            if not n.output:
+                return False
+            _, d = self.shape_info.get(n.output[0], (None, None))
+            return d == dtype
+
+        return self.filter(_match)
+
+    def attr(self, name: str, value: Any = None) -> ONNXQuery:
+        """Alias for find_by_attribute."""
+        return self.find_by_attribute(name, value)
+
     def find_by_op_type(self, op_type: str) -> ONNXQuery:
         """Filter nodes by their op_type."""
         return self.filter(lambda n: n.op_type == op_type)
@@ -133,9 +169,17 @@ class ONNXQuery:
         """Return direct children of selected nodes."""
         return self._traverse("successors")
 
+    def outputs(self) -> ONNXQuery:
+        """Alias for children()."""
+        return self.children()
+
     def parents(self) -> ONNXQuery:
         """Return direct parents of selected nodes."""
         return self._traverse("predecessors")
+
+    def inputs(self) -> ONNXQuery:
+        """Alias for parents()."""
+        return self.parents()
 
     def ancestors(self, max_depth: int = 100) -> ONNXQuery:
         """Return all ancestors within *max_depth*."""
@@ -177,6 +221,8 @@ class ONNXQuery:
 
     def matches(self, pattern: Pattern) -> ONNXQuery:
         """Return nodes that are the start of a match for *pattern*."""
+        from onnx_toolkit.pattern import PatternDetector
+
         shim = _GraphShim(self.all_nodes, self.tensor_map, self.shape_info)
         matched = []
         for node in self.nodes:
@@ -188,6 +234,8 @@ class ONNXQuery:
 
     def match_results(self, pattern: Pattern) -> list[MatchResult]:
         """Return all MatchResult objects for matches starting at these nodes."""
+        from onnx_toolkit.pattern import PatternDetector
+
         shim = _GraphShim(self.all_nodes, self.tensor_map, self.shape_info)
         results = []
         for node in self.nodes:

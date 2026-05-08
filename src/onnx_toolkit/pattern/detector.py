@@ -146,26 +146,50 @@ class PatternDetector:
             self._record(node, pattern, bindings, trail)
             return True
 
-        parents = self._parents(node, visited)
-        non_const_pats: list[Pattern] = []
-        used_inits: set[str] = set()
-
-        for pat in pattern.inputs:
-            if pat.op_type == _CONST_PAT:
-                if not self._match_init_const(node, pat.value, used_inits):
-                    return False
-            else:
-                non_const_pats.append(pat)
-
-        if len(parents) < len(non_const_pats):
-            return False
-
-        new_visited = visited | {node.name}
+        parents = self._parents_with_placeholders(node, visited)
+        
         if node.op_type in ("Add", "Mul"):
-            ok = self._try_commutative(parents, non_const_pats, new_visited, bindings, trail)
+            # Commutative: separate constants and nodes
+            non_const_pats: list[Pattern] = []
+            used_inits: set[str] = set()
+            for pat in pattern.inputs:
+                if pat.op_type == _CONST_PAT:
+                    if not self._match_init_const(node, pat.value, used_inits):
+                        return False
+                else:
+                    non_const_pats.append(pat)
+            
+            # Match remaining node patterns against remaining node parents
+            actual_parents = [p for p in parents if p is not None]
+            if len(actual_parents) < len(non_const_pats):
+                return False
+            
+            ok = self._try_commutative(actual_parents, non_const_pats, visited | {node.name}, bindings, trail)
         else:
-            ok = self._try_ordered(parents, non_const_pats, new_visited, bindings, trail)
-
+            # Ordered: match patterns one-by-one in position
+            if len(parents) < len(pattern.inputs):
+                return False
+            
+            ok = True
+            new_visited = visited | {node.name}
+            used_inits = set()
+            
+            for i, pat in enumerate(pattern.inputs):
+                if pat.op_type == _CONST_PAT:
+                    # Must match the input at this specific position
+                    if not self._match_init_const_at_pos(node, i, pat.value, used_inits):
+                        ok = False
+                        break
+                else:
+                    # Must be a node at this position
+                    parent = parents[i]
+                    if parent is None:
+                        ok = False
+                        break
+                    if not self._dfs(parent, pat, new_visited, bindings, trail):
+                        ok = False
+                        break
+        
         if ok:
             self._record(node, pattern, bindings, trail)
         return ok
@@ -182,14 +206,22 @@ class PatternDetector:
 
     def _match_init_const(self, node: NodeProto, value: object, used: set[str]) -> bool:
         for inp in node.input:
-            if (
-                inp
-                and inp in self._tensor_map
-                and inp not in used
-                and np.allclose(self._tensor_map[inp], value, atol=1e-3)
-            ):
-                used.add(inp)
-                return True
+            if not inp or inp in used:
+                continue
+            # Case 1: Initializer
+            if inp in self._tensor_map:
+                if np.allclose(self._tensor_map[inp], value, atol=1e-3):
+                    used.add(inp)
+                    return True
+            # Case 2: Constant node
+            parent = self._output_to_node.get(inp)
+            if parent and parent.op_type == "Constant":
+                for attr in parent.attribute:
+                    if attr.name == "value":
+                        val = numpy_helper.to_array(attr.t)
+                        if np.allclose(val, value, atol=1e-3):
+                            used.add(inp)
+                            return True
         return False
 
     def _check_attrs(self, node: NodeProto, pattern: Pattern) -> bool:
@@ -218,33 +250,40 @@ class PatternDetector:
             return False
         return not (pattern._dtype is not None and dtype != pattern._dtype)
 
-    def _parents(self, node: NodeProto, visited: frozenset[str]) -> list[NodeProto]:
-        parents: list[NodeProto] = []
+    def _match_init_const_at_pos(self, node: NodeProto, pos: int, value: object, used: set[str]) -> bool:
+        if pos >= len(node.input):
+            return False
+        inp = node.input[pos]
+        if not inp or inp in used:
+            return False
+        # Case 1: Initializer
+        if inp in self._tensor_map:
+            if np.allclose(self._tensor_map[inp], value, atol=1e-3):
+                used.add(inp)
+                return True
+        # Case 2: Constant node
+        parent = self._output_to_node.get(inp)
+        if parent and parent.op_type == "Constant":
+            for attr in parent.attribute:
+                if attr.name == "value":
+                    val = numpy_helper.to_array(attr.t)
+                    if np.allclose(val, value, atol=1e-3):
+                        used.add(inp)
+                        return True
+        return False
+
+    def _parents_with_placeholders(self, node: NodeProto, visited: frozenset[str]) -> list[NodeProto | None]:
+        parents: list[NodeProto | None] = []
         for inp in node.input:
             if not inp or inp in self._tensor_map:
+                parents.append(None)
                 continue
             parent = self._output_to_node.get(inp)
             if parent and parent.name not in visited:
                 parents.append(parent)
+            else:
+                parents.append(None)
         return parents
-
-    def _try_ordered(
-        self,
-        parents: list[NodeProto],
-        patterns: list[Pattern],
-        visited: frozenset[str],
-        bindings: dict[str, NodeProto],
-        trail: list[NodeProto],
-    ) -> bool:
-        for parent, pat in zip(parents, patterns):
-            snap_b = dict(bindings)
-            snap_t = len(trail)
-            if not self._dfs(parent, pat, visited | {parent.name}, bindings, trail):
-                bindings.clear()
-                bindings.update(snap_b)
-                del trail[snap_t:]
-                return False
-        return True
 
     def _try_commutative(
         self,

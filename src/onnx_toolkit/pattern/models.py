@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from onnx.onnx_pb import NodeProto
 from pydantic import BaseModel, ConfigDict, Field
 
 from onnx_toolkit._types import TensorMap
-from onnx_toolkit.query import ONNXQuery
+
+if TYPE_CHECKING:
+    from onnx_toolkit.query import ONNXQuery
 
 
 class MatchResult(BaseModel):
@@ -20,4 +24,6 @@ class MatchResult(BaseModel):
 
     def as_query(self) -> ONNXQuery:
         """Return the matched subgraph as an ONNXQuery."""
+        from onnx_toolkit.query import ONNXQuery
+
         return ONNXQuery(list(self.nodes), self.tensor_map, list(self.nodes))
