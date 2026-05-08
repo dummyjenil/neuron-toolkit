@@ -6,9 +6,92 @@ readme = "README.md"
 authors = [
     { name = "Sheth Jenil", email = "shethjeniljigneshbhai@gmail.com" }
 ]
+requires-python = ">=3.9"
+dependencies = [
+    "onnx",
+    "numpy",
+    "pydantic",
+    "networkx",
+]
 
-dependencies = ["onnx","numpy"]
 
 [build-system]
-requires = ["uv_build>=0.10.11,<0.11.0"]
-build-backend = "uv_build"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+# Professional rule selection for a high-quality library
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear (common bugs)
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade (modernize code)
+    "ARG",  # flake8-unused-arguments
+    "PTH",  # flake8-use-pathlib
+    "SIM",  # flake8-simplify (cleaner code)
+    "RUF",  # Ruff-specific rules
+    "N",    # pep8-naming
+    "S",    # flake8-bandit (security checks)
+    "ANN",  # flake8-annotations (type hints)
+    "BLE",  # flake8-blind-except
+    "FBT",  # flake8-boolean-trap
+    "DTZ",  # flake8-datetimez
+    "T10",  # flake8-debugger
+    "EM",   # flake8-errmsg
+    "ISC",  # flake8-implicit-str-concat
+    "ICN",  # flake8-import-conventions
+    "PT",   # flake8-pytest-style
+    "RET",  # flake8-return
+    "SLF",  # flake8-self
+    "TID",  # flake8-tidy-imports
+    "PGH",  # pygrep-hooks
+    "PL",   # Pylint
+    "TRY",  # tryceratops (exception handling)
+    "PERF", # Perflint (performance)
+    "FURB", # refurb (modernize/refactor)
+    "LOG",  # flake8-logging
+]
+ignore = [
+    "D100",   # Missing docstring in public module (often redundant)
+    "D104",   # Missing docstring in public package
+    "D203",   # 1 blank line required before class docstring (conflicts with D211)
+    "D213",   # Multi-line docstring summary should start at the second line
+    "PLR0913", # Too many arguments in function (sometimes needed for ONNX)
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "ANN"] # Allow assert in tests, and less strict typing
+
+[tool.mypy]
+# Strict type checking configuration
+python_version = "3.9"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+ignore_missing_imports = true
+show_error_codes = true
+pretty = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+addopts = "--strict-markers --cov=src --cov-report=term-missing"

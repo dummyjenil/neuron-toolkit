@@ -3,9 +3,9 @@ site_name: My Sketchy Docs
 theme:
   name: material
   palette:
-    - scheme: default   # 🔥 LIGHT THEME
+    - scheme: default
   features:
-    - navigation.instant  # <--- Agar ye hai
+    - navigation.instant
 
 extra_css:
   - stylesheets/extra.css
