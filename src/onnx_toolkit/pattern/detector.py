@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import itertools
 import logging
-from typing import Any, Callable, cast
+from collections.abc import Callable
+from typing import Any, cast
 
 import networkx as nx
 import numpy as np
@@ -13,7 +14,7 @@ from onnx_toolkit._utils import ShapeInfo, _GraphShim, _node_attrs
 from onnx_toolkit.pattern.dsl import _ANY_OF, _CONST_PAT, _WILDCARD, Pattern
 from onnx_toolkit.pattern.models import MatchResult
 
-log_d = logging.getLogger("onnx_toolkit.detect")
+log = logging.getLogger("onnx_toolkit.detect")
 
 
 class PatternDetector:
@@ -59,9 +60,13 @@ class PatternDetector:
         if self.start is None:
             return None
         bindings: dict[str, NodeProto] = {}
+        # Track pattern identity to node identity to enforce referential consistency
+        pat_to_node: dict[int, int] = {}
         visited_nodes: list[NodeProto] = []
-        if not self._dfs(self.start, pattern, frozenset(), bindings, visited_nodes):
+
+        if not self._dfs(self.start, pattern, frozenset(), bindings, visited_nodes, pat_to_node):
             return None
+
         terminal = self.end if self.end is not None else self.start
         return MatchResult(
             start=self.start,
@@ -110,7 +115,14 @@ class PatternDetector:
         visited: frozenset[str],
         bindings: dict[str, NodeProto],
         trail: list[NodeProto],
+        pat_to_node: dict[int, int],
     ) -> bool:
+        # Enforce referential consistency: if this pattern object was already matched,
+        # it MUST match the exact same node object.
+        pat_id = id(pattern)
+        if pat_id in pat_to_node:
+            return pat_to_node[pat_id] == id(node)
+
         if self.end is not None and node is self.end:
             return True
 
@@ -118,22 +130,40 @@ class PatternDetector:
             for alt in pattern._alternatives:
                 snap_b = dict(bindings)
                 snap_t = len(trail)
-                if self._dfs(node, alt, visited, bindings, trail):
+                snap_p = dict(pat_to_node)
+                if self._dfs(node, alt, visited, bindings, trail, pat_to_node):
                     if pattern._capture:
-                        bindings[pattern._capture] = node
-                    return True
+                        # Consistency check for capture
+                        if pattern._capture in bindings and id(bindings[pattern._capture]) != id(
+                            node
+                        ):
+                            # Backtrack
+                            pass
+                        else:
+                            bindings[pattern._capture] = node
+                            pat_to_node[pat_id] = id(node)
+                            return True
+                    else:
+                        pat_to_node[pat_id] = id(node)
+                        return True
                 bindings.clear()
                 bindings.update(snap_b)
                 del trail[snap_t:]
+                pat_to_node.clear()
+                pat_to_node.update(snap_p)
             return False
 
         if pattern.op_type == _CONST_PAT:
-            return self._match_const(node, pattern.value)
+            res = self._match_const(node, pattern.value)
+            if res:
+                pat_to_node[pat_id] = id(node)
+            return res
 
         if pattern.op_type == _WILDCARD:
             if not self._check_shape_dtype(node, pattern):
                 return False
             self._record(node, pattern, bindings, trail)
+            pat_to_node[pat_id] = id(node)
             return True
 
         if pattern.op_type is not None and node.op_type != pattern.op_type:
@@ -144,6 +174,7 @@ class PatternDetector:
 
         if not pattern.inputs:
             self._record(node, pattern, bindings, trail)
+            pat_to_node[pat_id] = id(node)
             return True
 
         parents = self._parents_with_placeholders(node, visited)
@@ -165,7 +196,7 @@ class PatternDetector:
                 return False
 
             ok = self._try_commutative(
-                actual_parents, non_const_pats, visited | {node.name}, bindings, trail
+                actual_parents, non_const_pats, visited | {node.name}, bindings, trail, pat_to_node
             )
         else:
             # Ordered: match patterns one-by-one in position
@@ -188,42 +219,50 @@ class PatternDetector:
                     if parent is None:
                         ok = False
                         break
-                    if not self._dfs(parent, pat, new_visited, bindings, trail):
+                    if not self._dfs(parent, pat, new_visited, bindings, trail, pat_to_node):
                         ok = False
                         break
 
         if ok:
             self._record(node, pattern, bindings, trail)
+            pat_to_node[pat_id] = id(node)
         return ok
 
     def _match_const(self, node: NodeProto, value: object) -> bool:
-        inits = [self._tensor_map[inp] for inp in node.input if inp and inp in self._tensor_map]
-        if inits:
-            return any(np.allclose(a, value, atol=1e-3) for a in inits)
-        if node.op_type == "Constant":
-            for attr in node.attribute:
-                if attr.name == "value":
-                    return bool(np.allclose(numpy_helper.to_array(attr.t), value, atol=1e-3))
+        try:
+            inits = [self._tensor_map[inp] for inp in node.input if inp and inp in self._tensor_map]
+            if inits:
+                return any(np.allclose(a, cast(Any, value), atol=1e-3) for a in inits)
+            if node.op_type == "Constant":
+                for attr in node.attribute:
+                    if attr.name == "value":
+                        return bool(np.allclose(numpy_helper.to_array(attr.t), cast(Any, value), atol=1e-3))
+        except (ValueError, TypeError):
+            # Handle shape mismatch or broadcasting errors gracefully
+            return False
         return False
 
     def _match_init_const(self, node: NodeProto, value: object, used: set[str]) -> bool:
-        for inp in node.input:
-            if not inp or inp in used:
-                continue
-            # Case 1: Initializer
-            if inp in self._tensor_map:
-                if np.allclose(self._tensor_map[inp], value, atol=1e-3):
-                    used.add(inp)
-                    return True
-            # Case 2: Constant node
-            parent = self._output_to_node.get(inp)
-            if parent and parent.op_type == "Constant":
-                for attr in parent.attribute:
-                    if attr.name == "value":
-                        val = numpy_helper.to_array(attr.t)
-                        if np.allclose(val, value, atol=1e-3):
-                            used.add(inp)
-                            return True
+        try:
+            for inp in node.input:
+                if not inp or inp in used:
+                    continue
+                # Case 1: Initializer
+                if inp in self._tensor_map:
+                    if np.allclose(self._tensor_map[inp], cast(Any, value), atol=1e-3):
+                        used.add(inp)
+                        return True
+                # Case 2: Constant node
+                parent = self._output_to_node.get(inp)
+                if parent and parent.op_type == "Constant":
+                    for attr in parent.attribute:
+                        if attr.name == "value":
+                            val = numpy_helper.to_array(attr.t)
+                            if np.allclose(val, cast(Any, value), atol=1e-3):
+                                used.add(inp)
+                                return True
+        except (ValueError, TypeError):
+            return False
         return False
 
     def _check_attrs(self, node: NodeProto, pattern: Pattern) -> bool:
@@ -237,6 +276,9 @@ class PatternDetector:
             if callable(expected):
                 func = cast("Callable[[Any], bool]", expected)
                 if not func(actual):
+                    return False
+            elif isinstance(actual, np.ndarray) or isinstance(expected, np.ndarray):
+                if not np.array_equal(actual, cast(Any, expected)):
                     return False
             elif actual != expected:
                 return False
@@ -260,20 +302,23 @@ class PatternDetector:
         inp = node.input[pos]
         if not inp or inp in used:
             return False
-        # Case 1: Initializer
-        if inp in self._tensor_map:
-            if np.allclose(self._tensor_map[inp], value, atol=1e-3):
-                used.add(inp)
-                return True
-        # Case 2: Constant node
-        parent = self._output_to_node.get(inp)
-        if parent and parent.op_type == "Constant":
-            for attr in parent.attribute:
-                if attr.name == "value":
-                    val = numpy_helper.to_array(attr.t)
-                    if np.allclose(val, value, atol=1e-3):
-                        used.add(inp)
-                        return True
+        try:
+            # Case 1: Initializer
+            if inp in self._tensor_map:
+                if np.allclose(self._tensor_map[inp], cast(Any, value), atol=1e-3):
+                    used.add(inp)
+                    return True
+            # Case 2: Constant node
+            parent = self._output_to_node.get(inp)
+            if parent and parent.op_type == "Constant":
+                for attr in parent.attribute:
+                    if attr.name == "value":
+                        val = numpy_helper.to_array(attr.t)
+                        if np.allclose(val, cast(Any, value), atol=1e-3):
+                            used.add(inp)
+                            return True
+        except (ValueError, TypeError):
+            return False
         return False
 
     def _parents_with_placeholders(
@@ -298,18 +343,27 @@ class PatternDetector:
         visited: frozenset[str],
         bindings: dict[str, NodeProto],
         trail: list[NodeProto],
+        pat_to_node: dict[int, int],
     ) -> bool:
-        for perm in itertools.permutations(parents, len(patterns)):
+        # Limit permutations to avoid DoS on nodes with many inputs
+        if len(parents) > 8:
+            log.warning("Too many parents for commutative match, limiting to first 8")
+            parents = parents[:8]
+
+        for perm in itertools.permutations(parents, min(len(patterns), len(parents))):
             snap_b = dict(bindings)
             snap_t = len(trail)
+            snap_p = dict(pat_to_node)
             if all(
-                self._dfs(p, pat, visited | {p.name}, bindings, trail)
+                self._dfs(p, pat, visited | {p.name}, bindings, trail, pat_to_node)
                 for p, pat in zip(perm, patterns)
             ):
                 return True
             bindings.clear()
             bindings.update(snap_b)
             del trail[snap_t:]
+            pat_to_node.clear()
+            pat_to_node.update(snap_p)
         return False
 
     @staticmethod
@@ -322,4 +376,5 @@ class PatternDetector:
         if not any(n is node for n in trail):
             trail.append(node)
         if pattern._capture:
+            # We enforce consistency in _dfs, but record here too
             bindings[pattern._capture] = node

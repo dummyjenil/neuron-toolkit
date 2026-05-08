@@ -14,7 +14,6 @@ from onnx import ModelProto, numpy_helper
 from onnx.onnx_pb import NodeProto
 
 from onnx_toolkit import _GraphShim
-from onnx_toolkit._types import TensorMap
 from onnx_toolkit._utils import ShapeInfo, _build_shape_info
 from onnx_toolkit.pattern import MatchResult, Pattern, PatternDetector
 from onnx_toolkit.query import ONNXQuery
@@ -23,6 +22,36 @@ if TYPE_CHECKING:
     from onnx_toolkit.rewriter import GraphRewriter
 
 log = logging.getLogger("onnx_toolkit")
+
+
+class LazyTensorMap(dict):
+    """Lazy-loading map for ONNX initializers."""
+
+    def __init__(self, initializers):
+        super().__init__()
+        self._initializers = {t.name: t for t in initializers}
+        self._cache = {}
+
+    def __getitem__(self, key):
+        if key in self._cache:
+            return self._cache[key]
+        if key in self._initializers:
+            arr = numpy_helper.to_array(self._initializers[key])
+            self._cache[key] = arr
+            return arr
+        return super().__getitem__(key)
+
+    def __contains__(self, key):
+        return key in self._initializers or key in self._cache or super().__contains__(key)
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def __len__(self):
+        return len(self._initializers)
 
 
 class ONNXParser:
@@ -35,15 +64,14 @@ class ONNXParser:
 
         if infer_shapes:
             try:
+                # Use infer_shapes_path for large models if needed, but here we just try-except
                 self.model = onnx.shape_inference.infer_shapes(self.model)
                 log.debug("Shape inference completed.")
             except Exception as exc:
                 log.warning("Shape inference failed: %s", exc)
 
         self.nodes: list[NodeProto] = list(self.model.graph.node)
-        self.tensor_map: TensorMap = {
-            t.name: numpy_helper.to_array(t) for t in self.model.graph.initializer
-        }
+        self.tensor_map = LazyTensorMap(self.model.graph.initializer)
         self.graph_inputs: set[str] = {i.name for i in self.model.graph.input}
         self.graph_outputs: set[str] = {o.name for o in self.model.graph.output}
         self.shape_info: ShapeInfo = _build_shape_info(self.model)

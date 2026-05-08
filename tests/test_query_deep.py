@@ -1,3 +1,5 @@
+from typing import cast
+
 import numpy as np
 import pytest
 from onnx import TensorProto, helper
@@ -20,7 +22,9 @@ def test_query_basics(branching_model):
     # Filter by name
     n0 = q.name("n0")
     assert len(n0) == 1
-    assert n0.first().op_type == "Relu"
+    node = n0.first()
+    assert node is not None
+    assert node.op_type == "Relu"
 
 
 def test_query_navigation(branching_model):
@@ -33,7 +37,9 @@ def test_query_navigation(branching_model):
     # n2 inputs are [add1_out, C]. C is an initializer.
     # ONNXQuery.inputs() usually returns producers of the inputs.
     assert len(inputs) == 1
-    assert inputs.first().name == "n1"
+    node = inputs.first()
+    assert node is not None
+    assert node.name == "n1"
 
     # n0 (Relu) outputs
     n0 = q.name("n0")
@@ -78,7 +84,7 @@ def test_query_params(branching_model):
     # n1 (Add) has parameter B
     n1 = q.name("n1")
     assert n1.has_params().count() == 1
-    params = n1.tensor()
+    params = cast(dict[str, np.ndarray], n1.tensor())
     assert "B" in params
     assert params["B"].shape == (5,)
 
@@ -97,14 +103,18 @@ def test_query_set_ops(branching_model):
 
     diff = adds - n1
     assert len(diff) == 1
-    assert diff.first().name == "n3"
+    node = diff.first()
+    assert node is not None
+    assert node.name == "n3"
 
     union = adds | n1
     assert len(union) == 2
 
     inter = adds & n1
     assert len(inter) == 1
-    assert inter.first().name == "n1"
+    node = inter.first()
+    assert node is not None
+    assert node.name == "n1"
 
 
 def test_query_shape_dtype(branching_model):
@@ -125,13 +135,19 @@ def test_query_chaining(branching_model):
     assert len(res) == 2
 
     # The first Add node
-    assert res.first().name == "n1"
+    node = res.first()
+    assert node is not None
+    assert node.name == "n1"
 
 
 def test_query_indexing(branching_model):
     parser = ONNXParser(branching_model)
     q = parser.find().op("Add")
-    assert q[0].first().name == "n1"
-    assert q[1].first().name == "n3"
+    node0 = q[0].first()
+    assert node0 is not None
+    assert node0.name == "n1"
+    node1 = q[1].first()
+    assert node1 is not None
+    assert node1.name == "n3"
     with pytest.raises(IndexError):
         _ = q[2]

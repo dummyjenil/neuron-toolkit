@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import networkx as nx
 import numpy as np
@@ -54,6 +54,16 @@ class ONNXQuery:
                     g.add_edge(parent.name, n.name, tensor=inp)
         return g
 
+    @cached_property
+    def _node_to_idx(self) -> dict[str, int]:
+        """Global topological index of each node in the full graph."""
+        try:
+            order = list(nx.topological_sort(self._nx_graph))
+            return {name: i for i, name in enumerate(order)}
+        except nx.NetworkXCyclicError:
+            # Fallback to original order if cycles exist
+            return {n.name: i for i, n in enumerate(self.all_nodes)}
+
     def _clone(self, nodes: Sequence[NodeProto]) -> ONNXQuery:
         new = self.__class__(
             nodes,
@@ -64,7 +74,7 @@ class ONNXQuery:
             self.shape_info,
         )
         # Share expensive graph caches
-        for attr in ("_output_map", "_nx_graph"):
+        for attr in ("_output_map", "_nx_graph", "_node_to_idx"):
             if attr in self.__dict__:
                 new.__dict__[attr] = self.__dict__[attr]
         return new
@@ -92,6 +102,7 @@ class ONNXQuery:
         def _match(n: NodeProto) -> bool:
             if not n.output:
                 return False
+            # Check shape_info (which now includes graph inputs)
             r, _ = self.shape_info.get(n.output[0], (None, None))
             return r == rank
 
@@ -142,26 +153,41 @@ class ONNXQuery:
             if value is None:
                 return True
             v = attrs[name]
-            return value(v) if callable(value) else v == value
+            if callable(value):
+                return value(v)
+            if isinstance(v, np.ndarray) or isinstance(value, np.ndarray):
+                return np.array_equal(v, value)
+            return v == value
 
         return self.filter(_match)
 
     # --- Traversal ---
 
     def _traverse(self, method: str, max_depth: int = 100) -> ONNXQuery:
-        g, targets = self._nx_graph, set()
-        for n in self.nodes:
-            if method == "successors":
-                targets.update(g.successors(n.name))
-            elif method == "predecessors":
-                targets.update(g.predecessors(n.name))
-            else:
-                rev = g.reverse(copy=False) if method == "ancestors" else g
-                lengths = nx.single_source_shortest_path_length(rev, n.name, cutoff=max_depth)
-                targets.update(lengths.keys())
+        g = self._nx_graph
+        if not self.nodes:
+            return self._clone([])
 
-        if method in ("ancestors", "descendants"):
-            targets -= {n.name for n in self.nodes}
+        if method == "successors":
+            targets = {s for n in self.nodes for s in g.successors(n.name)}
+        elif method == "predecessors":
+            targets = {p for n in self.nodes for p in g.predecessors(n.name)}
+        else:
+            # Optimized multi-source traversal
+            rev = g.reverse(copy=False) if method == "ancestors" else g
+            sources = [n.name for n in self.nodes]
+            # Use multi-source BFS
+            visited = set()
+            queue = [(s, 0) for s in sources]
+            while queue:
+                u, d = queue.pop(0)
+                if u not in visited:
+                    visited.add(u)
+                    if d < max_depth:
+                        for v in rev.successors(u):
+                            if v not in visited:
+                                queue.append((v, d + 1))
+            targets = visited - set(sources)
 
         return self._clone([g.nodes[name]["proto"] for name in targets])
 
@@ -217,7 +243,9 @@ class ONNXQuery:
             return self.tensor_map.get(name)
         if len(self.nodes) == 1:
             return self._params(self.nodes[0])
-        return {n.name: p for n in self.nodes if (p := self._params(n))}
+        return {
+            n.name or f"node_{i}": p for i, n in enumerate(self.nodes) if (p := self._params(n))
+        }
 
     def matches(self, pattern: Pattern) -> ONNXQuery:
         """Return nodes that are the start of a match for *pattern*."""
@@ -249,24 +277,21 @@ class ONNXQuery:
     # --- Ordering ---
 
     def topological_sort(self) -> ONNXQuery:
-        """Return nodes in topological order."""
-        subgraph = self._nx_graph.subgraph([n.name for n in self.nodes])
-        try:
-            order = list(nx.topological_sort(subgraph))
-            return self._clone([self._nx_graph.nodes[name]["proto"] for name in order])
-        except nx.NetworkXCyclicError:
-            msg = "Cycle detected in selected subgraph."
-            raise ValueError(msg) from None
+        """Return nodes in global topological order."""
+        idx_map = self._node_to_idx
+        sorted_nodes = sorted(self.nodes, key=lambda n: idx_map.get(n.name, 999999))
+        return self._clone(sorted_nodes)
 
     def is_topologically_sorted(self) -> bool:
         """Return True if current node list is in topological order."""
-        try:
-            self.topological_sort()
-            name_to_idx = {n.name: i for i, n in enumerate(self.nodes)}
-            sub = self._nx_graph.subgraph(name_to_idx.keys())
-            return all(name_to_idx[u] <= name_to_idx[v] for u, v in sub.edges())
-        except ValueError:
-            return False
+        idx_map = self._node_to_idx
+        last_idx = -1
+        for n in self.nodes:
+            curr_idx = idx_map.get(n.name, 999999)
+            if curr_idx < last_idx:
+                return False
+            last_idx = curr_idx
+        return True
 
     def apply(self, fn: Callable[[NodeProto, TensorMap], Any]) -> ONNXQuery:
         """Apply *fn* to each node and its parameters."""
@@ -278,18 +303,19 @@ class ONNXQuery:
 
     def union(self, other: ONNXQuery) -> ONNXQuery:
         """Return union of nodes with another query."""
-        seen = {n.name for n in self.nodes}
-        return self._clone(self.nodes + [n for n in other.nodes if n.name not in seen])
+        # Use object identity for set operations to handle unnamed nodes
+        seen_ids = {id(n) for n in self.nodes}
+        return self._clone(self.nodes + [n for n in other.nodes if id(n) not in seen_ids])
 
     def intersection(self, other: ONNXQuery) -> ONNXQuery:
         """Return intersection of nodes with another query."""
-        other_names = {n.name for n in other.nodes}
-        return self._clone([n for n in self.nodes if n.name in other_names])
+        other_ids = {id(n) for n in other.nodes}
+        return self._clone([n for n in self.nodes if id(n) in other_ids])
 
     def difference(self, other: ONNXQuery) -> ONNXQuery:
         """Return nodes in this query but not in the other."""
-        other_names = {n.name for n in other.nodes}
-        return self._clone([n for n in self.nodes if n.name not in other_names])
+        other_ids = {id(n) for n in other.nodes}
+        return self._clone([n for n in self.nodes if id(n) not in other_ids])
 
     def __or__(self, other: ONNXQuery) -> ONNXQuery:
         return self.union(other)
@@ -344,16 +370,18 @@ class ONNXQuery:
         return bool(self.nodes)
 
     def __getitem__(self, i: int | slice) -> ONNXQuery:
-        nodes = self.nodes[i] if isinstance(i, slice) else [self.nodes[i]]
-        return self._clone(nodes)
+        if isinstance(i, slice):
+            return self._clone(self.nodes[i])
+        return self._clone([self.nodes[i]])
 
     def __repr__(self) -> str:
         if not self.nodes:
             return "ONNXQuery(empty)"
         lines = [f"ONNXQuery: {len(self.nodes)} nodes"]
         for i, n in enumerate(self.nodes[:MAX_REPR_NODES]):
-            p = ", ".join(f"{k}:{list(v.shape)}" for k, v in self._params(n).items()) or "-"
-            lines.append(f"  [{i:3}] {n.op_type:16} {n.name} (params: {p})")
+            params = self._params(n)
+            p = ", ".join(f"{k}:{list(v.shape)}" for k, v in params.items()) or "-"
+            lines.append(f"  [{i:3}] {n.op_type:16} {n.name or '<unnamed>'} (params: {p})")
         if len(self.nodes) > MAX_REPR_NODES:
             lines.append(f"  ... (+{len(self.nodes) - MAX_REPR_NODES} more)")
         return "\n".join(lines)

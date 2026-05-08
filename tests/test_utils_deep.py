@@ -2,7 +2,12 @@ import numpy as np
 import onnx
 from onnx import TensorProto, helper
 
-from onnx_toolkit._utils import _ONNX_DTYPE_TO_NP, _attr_value, _build_shape_info, _node_attrs
+from onnx_toolkit._utils import (
+    _ONNX_DTYPE_TO_NP,
+    _attr_value,
+    _build_shape_info,
+    _node_attrs,
+)
 
 
 def test_attr_value_all_types():

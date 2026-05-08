@@ -9,6 +9,7 @@ import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
+import networkx as nx
 import onnx
 from onnx import helper
 from onnx.onnx_pb import NodeProto
@@ -26,13 +27,8 @@ class GraphRewriter:
 
     def __init__(self, parser: ONNXParser) -> None:
         """Initialize with an ONNXParser instance."""
-        from .parser import ONNXParser
-
-        if not isinstance(parser, ONNXParser):
-            msg = "GraphRewriter requires an ONNXParser instance"
-            raise TypeError(msg)
         self._parser = parser
-        self._to_remove: list[str] = []  # node names to drop
+        self._to_remove_ids: set[int] = set()  # node object IDs to drop
         self._to_insert: list[NodeProto] = []  # new nodes to add
 
     # ------------------------------------------------------------------
@@ -48,22 +44,9 @@ class GraphRewriter:
         name: str | None = None,
         **attrs: Any,
     ) -> GraphRewriter:
-        """Replace *nodes* with a single new node of type *new_op*.
-
-        Parameters
-        ----------
-        nodes   : the nodes to remove (typically result.nodes from a MatchResult)
-        new_op  : op_type of the replacement node
-        inputs  : input tensor names for the new node
-        outputs : output tensor names for the new node
-        name    : optional name for the new node (auto-generated if omitted)
-        **attrs : keyword attributes passed to onnx.helper.make_node
-
-        Returns self for chaining.
-        """
+        """Replace *nodes* with a single new node of type *new_op*."""
         for n in nodes:
-            if n.name not in self._to_remove:
-                self._to_remove.append(n.name)
+            self._to_remove_ids.add(id(n))
         node_name = name or f"{new_op}_{len(self._to_insert)}_rewrite"
         new_node = helper.make_node(new_op, inputs=inputs, outputs=outputs, name=node_name, **attrs)
         self._to_insert.append(new_node)
@@ -81,23 +64,33 @@ class GraphRewriter:
     ) -> GraphRewriter:
         """Convenience wrapper: replace all nodes in *result* with a new op.
 
-        *inputs* defaults to the first output of result.end (the boundary node).
-        *outputs* defaults to the first output of result.start.
+        *inputs* defaults to the inputs of the boundary nodes in the result.
+        *outputs* defaults to the outputs of the result's root node.
         """
-        ins = inputs or [result.end.output[0]]
-        outs = outputs or [result.start.output[0]]
-        return self.replace(result.nodes, new_op, ins, outs, name=name, **attrs)
+        # Improved boundary detection:
+        # Inputs are tensors consumed by result nodes that are produced outside the result.
+        internal_outputs = {out for n in result.nodes for out in n.output}
+        if inputs is None:
+            ins = []
+            for n in result.nodes:
+                for inp in n.input:
+                    if inp and inp not in internal_outputs and inp not in ins:
+                        # Only include if it's an initializer or a graph input or from another node
+                        ins.append(inp)
+            inputs = ins
+
+        if outputs is None:
+            # Outputs are tensors produced by result nodes and consumed by nodes outside result,
+            # or they are graph outputs.
+            # For simplicity, we use the start node's outputs as the primary interface.
+            outputs = list(result.start.output)
+
+        return self.replace(result.nodes, new_op, inputs, outputs, name=name, **attrs)
 
     def delete(self, nodes: Sequence[NodeProto]) -> GraphRewriter:
-        """Remove *nodes* from the graph entirely.
-
-        Warning: this will produce a disconnected graph unless the removed
-        nodes' consumers are also removed or their inputs are rewired.
-        Returns self for chaining.
-        """
+        """Remove *nodes* from the graph entirely."""
         for n in nodes:
-            if n.name not in self._to_remove:
-                self._to_remove.append(n.name)
+            self._to_remove_ids.add(id(n))
         log.debug("delete(): scheduled removal of %d node(s)", len(nodes))
         return self
 
@@ -110,11 +103,7 @@ class GraphRewriter:
         name: str | None = None,
         **attrs: Any,
     ) -> GraphRewriter:
-        """Insert a new node whose outputs feed *target_node*.
-
-        The caller is responsible for ensuring *outputs* matches the inputs
-        that *target_node* expects.  Returns self for chaining.
-        """
+        """Insert a new node whose outputs feed *target_node*."""
         node_name = name or f"{new_op}_{len(self._to_insert)}_insert"
         new_node = helper.make_node(new_op, inputs=inputs, outputs=outputs, name=node_name, **attrs)
         self._to_insert.append(new_node)
@@ -123,7 +112,7 @@ class GraphRewriter:
 
     def reset(self) -> GraphRewriter:
         """Discard all pending edits."""
-        self._to_remove.clear()
+        self._to_remove_ids.clear()
         self._to_insert.clear()
         return self
 
@@ -132,50 +121,65 @@ class GraphRewriter:
     # ------------------------------------------------------------------
 
     def build(self, output_path: str | None = None) -> onnx.ModelProto:
-        """Apply all staged edits and return the new ModelProto.
-
-        If *output_path* is given the model is also saved to that path.
-
-        The edit order is:
-        1. Remove all scheduled nodes.
-        2. Append inserted nodes at the end of the node list.
-           (The graph is re-sorted topologically before saving so ordering
-            is always valid.)
-
-        Raises:
-        ------
-        ValueError  if no edits have been staged.
-        """
-        if not self._to_remove and not self._to_insert:
+        """Apply all staged edits and return the new ModelProto."""
+        if not self._to_remove_ids and not self._to_insert:
             msg = "No edits staged. Call replace(), delete(), or insert_before() first."
             raise ValueError(msg)
 
-        remove_set = set(self._to_remove)
         orig_graph = self._parser.model.graph
 
         # Keep nodes not scheduled for removal
-        kept_nodes = [n for n in orig_graph.node if n.name not in remove_set]
+        kept_nodes = [n for n in orig_graph.node if id(n) not in self._to_remove_ids]
         # Append new nodes
         all_nodes = kept_nodes + self._to_insert
 
-        # Re-use original initializers, inputs, outputs
+        # Build a temporary graph to perform topological sort
+        # We use a DiGraph to represent dependencies
+        g = nx.DiGraph()
+
+        for i, n in enumerate(all_nodes):
+            # Use unique node ID (index) to handle unnamed nodes
+            node_id = f"node_{i}"
+            g.add_node(node_id, proto=n)
+            for inp in n.input:
+                if not inp:
+                    continue
+                # Find which node produces this input
+                producer_idx = -1
+                for j, p in enumerate(all_nodes):
+                    if inp in p.output:
+                        producer_idx = j
+                        break
+                if producer_idx != -1:
+                    g.add_edge(f"node_{producer_idx}", node_id)
+
+        try:
+            sorted_node_ids = list(nx.topological_sort(g))
+            final_nodes = [g.nodes[nid]["proto"] for nid in sorted_node_ids]
+        except nx.NetworkXCyclicError:
+            log.warning("Cycle detected during rewrite! Falling back to unsorted nodes.")
+            final_nodes = all_nodes
+
         new_graph = helper.make_graph(
-            nodes=all_nodes,
+            nodes=final_nodes,
             name=orig_graph.name or "rewritten",
             inputs=list(orig_graph.input),
             outputs=list(orig_graph.output),
             initializer=list(orig_graph.initializer),
         )
 
-        # Copy model metadata
         new_model = helper.make_model(new_graph)
         new_model.ir_version = self._parser.model.ir_version
         new_model.opset_import.extend(self._parser.model.opset_import)
 
-        # Run shape inference on the result
+        # Copy other metadata
+        for attr in ["producer_name", "producer_version", "domain", "model_version", "doc_string"]:
+            if hasattr(self._parser.model, attr):
+                setattr(new_model, attr, getattr(self._parser.model, attr))
+
         try:
             new_model = onnx.shape_inference.infer_shapes(new_model)
-        except Exception as exc:
+        except (ValueError, TypeError, RuntimeError) as exc:
             log.warning("Shape inference failed after rewrite: %s", exc)
 
         if output_path:
@@ -184,8 +188,12 @@ class GraphRewriter:
 
         log.debug(
             "build(): removed %d node(s), inserted %d node(s), result has %d node(s)",
-            len(self._to_remove),
+            len(self._to_remove_ids),
             len(self._to_insert),
-            len(all_nodes),
+            len(final_nodes),
         )
+
+        # Clear staging after build
+        self.reset()
+
         return new_model

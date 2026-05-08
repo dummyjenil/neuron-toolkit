@@ -13,6 +13,8 @@ def test_rewriter_replace(simple_model, tmp_path):
 
     node_add = parser.find().op("Add").first()
     node_mul = parser.find().op("Mul").first()
+    assert node_add is not None
+    assert node_mul is not None
 
     rewriter.replace(
         nodes=[node_add, node_mul],
@@ -60,6 +62,7 @@ def test_rewriter_delete(simple_model):
     rewriter = parser.rewriter()
 
     node_mul = parser.find().op("Mul").first()
+    assert node_mul is not None
     rewriter.delete([node_mul])
 
     new_model = rewriter.build()
@@ -72,6 +75,7 @@ def test_rewriter_insert_before(simple_model):
     rewriter = parser.rewriter()
 
     node_mul = parser.find().op("Mul").first()
+    assert node_mul is not None
     # Insert a Relu before Mul
     # Mul currently takes add_out and C.
     # Let's insert Relu(add_out) -> relu_out, and change Mul to take relu_out.

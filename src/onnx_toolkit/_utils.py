@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 import onnx
 from onnx import AttributeProto, TensorProto
 from onnx.numpy_helper import to_array
 from onnx.onnx_pb import NodeProto
-
-from ._types import TensorMap
 
 log = logging.getLogger("onnx_toolkit")
 
@@ -49,6 +47,8 @@ def _attr_value(attr: AttributeProto) -> object | None:
         return list(attr.ints)
     if t == AttributeProto.STRINGS:
         return [s.decode("utf-8") for s in attr.strings]
+    if t == AttributeProto.TENSORS:
+        return [to_array(ten) for ten in attr.tensors]
 
     log.debug(
         "_attr_value: unrecognised attribute type %s for %r",
@@ -63,12 +63,8 @@ def _node_attrs(node: NodeProto) -> dict[str, Any]:
     return {a.name: _attr_value(a) for a in node.attribute}
 
 
-# ---------------------------------------------------------------------------
-# Shape-info helpers (populated from onnx.shape_inference)
-# ---------------------------------------------------------------------------
-
-# ShapeInfo: output_name → (rank | None, dtype_str | None)
-ShapeInfo = dict[str, tuple[Optional[int], Optional[str]]]
+# ShapeInfo: value_name → (rank | None, dtype_str | None)
+ShapeInfo = dict[str, tuple[int | None, str | None]]
 
 
 def _build_shape_info(inferred_model: onnx.ModelProto) -> ShapeInfo:
@@ -77,17 +73,21 @@ def _build_shape_info(inferred_model: onnx.ModelProto) -> ShapeInfo:
     Uses the type/shape annotations produced by onnx.shape_inference.infer_shapes.
     """
     info: ShapeInfo = {}
-    for vi in inferred_model.graph.value_info:
-        t = vi.type.tensor_type
-        rank = len(t.shape.dim) if t.HasField("shape") else None
-        dtype = _ONNX_DTYPE_TO_NP.get(t.elem_type)
-        info[vi.name] = (rank, dtype)
-    # Also include graph outputs
-    for vi in inferred_model.graph.output:
-        t = vi.type.tensor_type
-        rank = len(t.shape.dim) if t.HasField("shape") else None
-        dtype = _ONNX_DTYPE_TO_NP.get(t.elem_type)
-        info[vi.name] = (rank, dtype)
+
+    def _extract_vi(vi_list):
+        for vi in vi_list:
+            if not vi.type.HasField("tensor_type"):
+                continue
+            t = vi.type.tensor_type
+            rank = len(t.shape.dim) if t.HasField("shape") else None
+            dtype = _ONNX_DTYPE_TO_NP.get(t.elem_type)
+            info[vi.name] = (rank, dtype)
+
+    # Include inputs, value_info, and outputs
+    _extract_vi(inferred_model.graph.input)
+    _extract_vi(inferred_model.graph.value_info)
+    _extract_vi(inferred_model.graph.output)
+
     return info
 
 
@@ -102,7 +102,7 @@ class _GraphShim:
     def __init__(
         self,
         nodes: list[NodeProto],
-        tensor_map: TensorMap,
+        tensor_map: dict[str, Any],
         shape_info: ShapeInfo | None = None,
     ) -> None:
         self.nodes = nodes
