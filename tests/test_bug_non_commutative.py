@@ -17,11 +17,18 @@ def sub_model(tmp_path):
     B_val = np.array([1.0], dtype=np.float32)
     B = helper.make_tensor("B", TensorProto.FLOAT, [1], B_val.tobytes(), raw=True)
 
-    graph = helper.make_graph([node_id, node_sub], "graph", [A], [helper.make_tensor_value_info("output", TensorProto.FLOAT, [1])], [B])
+    graph = helper.make_graph(
+        [node_id, node_sub],
+        "graph",
+        [A],
+        [helper.make_tensor_value_info("output", TensorProto.FLOAT, [1])],
+        [B],
+    )
     model = helper.make_model(graph)
     path = str(tmp_path / "sub.onnx")
     onnx.save(model, path)
     return path
+
 
 def test_pattern_sub_order(sub_model):
     parser = ONNXParser(sub_model)

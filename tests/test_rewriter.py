@@ -17,6 +17,7 @@ def test_rewriter_replace(simple_model, tmp_path):
     assert "Sub" in op_types
     assert "Add" not in op_types
 
+
 def test_rewriter_replace_from_result(simple_model):
     parser = ONNXParser(simple_model)
 
@@ -27,6 +28,7 @@ def test_rewriter_replace_from_result(simple_model):
     # I should use Pattern.const() or Pattern.any() (if I fix the library).
     # For now, let's use a pattern that matches.
     import numpy as np
+
     B_val = np.array([[1, 2, 3]], dtype=np.float32)
     pat = Pattern.op("Add", Pattern.any(), Pattern.const(B_val))
 
@@ -41,6 +43,7 @@ def test_rewriter_replace_from_result(simple_model):
     assert "CustomOp" in op_types
     assert "Add" not in op_types
 
+
 def test_rewriter_delete(complex_model):
     parser = ONNXParser(complex_model)
 
@@ -53,6 +56,7 @@ def test_rewriter_delete(complex_model):
     new_model = rw.build()
     assert len(new_model.graph.node) == 5
     assert "Tanh" not in [n.op_type for n in new_model.graph.node]
+
 
 def test_rewriter_insert_before(simple_model):
     parser = ONNXParser(simple_model)

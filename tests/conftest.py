@@ -1,4 +1,3 @@
-
 import numpy as np
 import onnx
 import pytest
@@ -21,19 +20,14 @@ def simple_model(tmp_path):
 
     output = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 3])
 
-    graph = helper.make_graph(
-        [node_id, node_add, node_mul],
-        "test_graph",
-        [A],
-        [output],
-        [B, C]
-    )
+    graph = helper.make_graph([node_id, node_add, node_mul], "test_graph", [A], [output], [B, C])
 
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
 
     model_path = str(tmp_path / "simple.onnx")
     onnx.save(model, model_path)
     return model_path
+
 
 @pytest.fixture
 def complex_model(tmp_path):
@@ -49,24 +43,33 @@ def complex_model(tmp_path):
     node5 = helper.make_node("Tanh", ["add_out"], ["output2"], name="n5")
 
     A = helper.make_tensor_value_info("A", TensorProto.FLOAT, [1, 10])
-    B = helper.make_tensor("B", TensorProto.FLOAT, [1, 10], np.random.randn(1, 10).astype(np.float32).tobytes(), raw=True)
-    C = helper.make_tensor("C", TensorProto.FLOAT, [1, 10], np.random.randn(1, 10).astype(np.float32).tobytes(), raw=True)
+    B = helper.make_tensor(
+        "B",
+        TensorProto.FLOAT,
+        [1, 10],
+        np.random.randn(1, 10).astype(np.float32).tobytes(),
+        raw=True,
+    )
+    C = helper.make_tensor(
+        "C",
+        TensorProto.FLOAT,
+        [1, 10],
+        np.random.randn(1, 10).astype(np.float32).tobytes(),
+        raw=True,
+    )
 
     out1 = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 10])
     out2 = helper.make_tensor_value_info("output2", TensorProto.FLOAT, [1, 10])
 
     graph = helper.make_graph(
-        [node0, node1, node2, node3, node4, node5],
-        "complex_graph",
-        [A],
-        [out1, out2],
-        [B, C]
+        [node0, node1, node2, node3, node4, node5], "complex_graph", [A], [out1, out2], [B, C]
     )
 
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
     model_path = str(tmp_path / "complex.onnx")
     onnx.save(model, model_path)
     return model_path
+
 
 @pytest.fixture
 def branching_model(tmp_path):
@@ -91,11 +94,7 @@ def branching_model(tmp_path):
     out2 = helper.make_tensor_value_info("output2", TensorProto.FLOAT, [1, 5])
 
     graph = helper.make_graph(
-        [node0, node1, node2, node3],
-        "branching",
-        [A],
-        [out1, out2],
-        [B, C, D]
+        [node0, node1, node2, node3], "branching", [A], [out1, out2], [B, C, D]
     )
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
     path = str(tmp_path / "branching.onnx")

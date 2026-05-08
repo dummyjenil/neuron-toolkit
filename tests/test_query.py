@@ -14,10 +14,11 @@ def test_query_filters(complex_model):
     assert q.find_by_name("n").count() == 6
 
     # tensor
-    assert q.find_by_tensor("relu_out").count() == 2 # Produces by Relu, consumed by Add
+    assert q.find_by_tensor("relu_out").count() == 2  # Produces by Relu, consumed by Add
 
     # attribute (Relu doesn't have attributes, let's use a model with attributes if needed, but we can test missing)
     assert q.find_by_attribute("non_existent").count() == 0
+
 
 def test_query_traversal(complex_model):
     parser = ONNXParser(complex_model)
@@ -34,13 +35,14 @@ def test_query_traversal(complex_model):
 
     # descendants
     desc = relu_node.descendants()
-    assert desc.count() == 4 # Add, Mul, Sigmoid, Tanh
+    assert desc.count() == 4  # Add, Mul, Sigmoid, Tanh
     assert set(n.name for n in desc) == {"n2", "n3", "n4", "n5"}
 
     # ancestors
     anc = q.find_by_name("n4", exact=True).ancestors()
-    assert anc.count() == 4 # Mul, Add, Relu, Identity
+    assert anc.count() == 4  # Mul, Add, Relu, Identity
     assert set(n.name for n in anc) == {"n0", "n1", "n2", "n3"}
+
 
 def test_query_set_ops(complex_model):
     parser = ONNXParser(complex_model)
@@ -59,6 +61,7 @@ def test_query_set_ops(complex_model):
     diff = union - q1
     assert diff.count() == 1
     assert diff.single_node.op_type == "Add"
+
 
 def test_query_topological_sort(complex_model):
     parser = ONNXParser(complex_model)

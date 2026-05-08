@@ -9,12 +9,14 @@ def test_parser_loading(simple_model):
     assert "B" in parser.tensor_map
     assert "C" in parser.tensor_map
 
+
 def test_parser_summary(simple_model):
     parser = ONNXParser(simple_model)
     summary = parser.summary()
     assert "Add" in summary
     assert "Mul" in summary
     assert "Nodes        : 3" in summary
+
 
 def test_parser_find(simple_model):
     parser = ONNXParser(simple_model)

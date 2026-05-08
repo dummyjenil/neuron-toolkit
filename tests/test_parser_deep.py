@@ -1,9 +1,9 @@
-
 import pytest
-import onnx
+
 from onnx_toolkit.parser import ONNXParser
-from onnx_toolkit.query import ONNXQuery
 from onnx_toolkit.pattern import Pattern
+from onnx_toolkit.query import ONNXQuery
+
 
 def test_parser_init(simple_model):
     parser = ONNXParser(simple_model)
@@ -14,6 +14,7 @@ def test_parser_init(simple_model):
     assert "C" in parser.tensor_map
     assert "A_id" in parser.shape_info
 
+
 def test_parser_no_infer(simple_model):
     # If we disable shape inference, shape_info might still have some data from graph.output
     # but maybe less than if we infer.
@@ -21,11 +22,13 @@ def test_parser_no_infer(simple_model):
     # The simple_model in conftest already has output shape info
     assert "output" in parser.shape_info
 
+
 def test_parser_find(simple_model):
     parser = ONNXParser(simple_model)
     query = parser.find()
     assert isinstance(query, ONNXQuery)
     assert len(query.all_nodes) == 3
+
 
 def test_parser_pattern_detect(simple_model):
     parser = ONNXParser(simple_model)
@@ -37,6 +40,7 @@ def test_parser_pattern_detect(simple_model):
     assert match.start.op_type == "Mul"
     assert "node_add" in [n.name for n in match.nodes]
 
+
 def test_parser_summary(simple_model):
     parser = ONNXParser(simple_model)
     summary = parser.summary()
@@ -45,9 +49,11 @@ def test_parser_summary(simple_model):
     assert "Add" in summary
     assert "Mul" in summary
 
+
 def test_parser_invalid_path():
-    with pytest.raises(Exception): # onnx.load raises FileNotFoundError or similar
+    with pytest.raises(Exception):  # onnx.load raises FileNotFoundError or similar
         ONNXParser("non_existent.onnx")
+
 
 def test_parser_corrupt_model(tmp_path):
     corrupt_path = tmp_path / "corrupt.onnx"

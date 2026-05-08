@@ -31,6 +31,7 @@ _ONNX_DTYPE_TO_NP: dict[int, str] = {
     TensorProto.STRING: "object",
 }
 
+
 def _attr_value(attr: AttributeProto) -> object | None:
     """Extract a typed Python value from an ONNX AttributeProto."""
     t = attr.type
@@ -55,6 +56,7 @@ def _attr_value(attr: AttributeProto) -> object | None:
         getattr(attr, "name", "?"),
     )
     return None
+
 
 def _node_attrs(node: NodeProto) -> dict[str, Any]:
     """Return all attributes of *node* as a plain dict."""

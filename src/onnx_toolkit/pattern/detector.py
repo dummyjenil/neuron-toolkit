@@ -147,7 +147,7 @@ class PatternDetector:
             return True
 
         parents = self._parents_with_placeholders(node, visited)
-        
+
         if node.op_type in ("Add", "Mul"):
             # Commutative: separate constants and nodes
             non_const_pats: list[Pattern] = []
@@ -158,22 +158,24 @@ class PatternDetector:
                         return False
                 else:
                     non_const_pats.append(pat)
-            
+
             # Match remaining node patterns against remaining node parents
             actual_parents = [p for p in parents if p is not None]
             if len(actual_parents) < len(non_const_pats):
                 return False
-            
-            ok = self._try_commutative(actual_parents, non_const_pats, visited | {node.name}, bindings, trail)
+
+            ok = self._try_commutative(
+                actual_parents, non_const_pats, visited | {node.name}, bindings, trail
+            )
         else:
             # Ordered: match patterns one-by-one in position
             if len(parents) < len(pattern.inputs):
                 return False
-            
+
             ok = True
             new_visited = visited | {node.name}
             used_inits = set()
-            
+
             for i, pat in enumerate(pattern.inputs):
                 if pat.op_type == _CONST_PAT:
                     # Must match the input at this specific position
@@ -189,7 +191,7 @@ class PatternDetector:
                     if not self._dfs(parent, pat, new_visited, bindings, trail):
                         ok = False
                         break
-        
+
         if ok:
             self._record(node, pattern, bindings, trail)
         return ok
@@ -250,7 +252,9 @@ class PatternDetector:
             return False
         return not (pattern._dtype is not None and dtype != pattern._dtype)
 
-    def _match_init_const_at_pos(self, node: NodeProto, pos: int, value: object, used: set[str]) -> bool:
+    def _match_init_const_at_pos(
+        self, node: NodeProto, pos: int, value: object, used: set[str]
+    ) -> bool:
         if pos >= len(node.input):
             return False
         inp = node.input[pos]
@@ -272,7 +276,9 @@ class PatternDetector:
                         return True
         return False
 
-    def _parents_with_placeholders(self, node: NodeProto, visited: frozenset[str]) -> list[NodeProto | None]:
+    def _parents_with_placeholders(
+        self, node: NodeProto, visited: frozenset[str]
+    ) -> list[NodeProto | None]:
         parents: list[NodeProto | None] = []
         for inp in node.input:
             if not inp or inp in self._tensor_map:

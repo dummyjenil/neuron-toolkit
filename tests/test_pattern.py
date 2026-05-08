@@ -12,6 +12,7 @@ def test_pattern_dsl():
     assert p.inputs[1].op_type == "__const__"
     assert p.inputs[1].value == 1.0
 
+
 def test_pattern_arithmetic_dsl():
     x = Pattern.any()
     p = (x + 1.0) * 2.0
@@ -20,6 +21,7 @@ def test_pattern_arithmetic_dsl():
     assert p.inputs[1].value == 2.0
     assert p.inputs[0].inputs[0] is x
     assert p.inputs[0].inputs[1].value == 1.0
+
 
 def test_pattern_matching_simple(simple_model):
     parser = ONNXParser(simple_model)
@@ -38,16 +40,20 @@ def test_pattern_matching_simple(simple_model):
     assert res_full is not None
     assert len(res_full.nodes) == 3
 
+
 def test_pattern_capture(simple_model):
     parser = ONNXParser(simple_model)
 
     B_val = np.array([[1, 2, 3]], dtype=np.float32)
-    pat = Pattern.op("Add", Pattern.any().capture("input_a"), Pattern.const(B_val).capture("input_b")).capture("add_node")
+    pat = Pattern.op(
+        "Add", Pattern.any().capture("input_a"), Pattern.const(B_val).capture("input_b")
+    ).capture("add_node")
     res = parser.pattern_detect(pat, start_node="node_add")
     assert res is not None
     assert "add_node" in res.bindings
     assert res.bindings["add_node"].name == "node_add"
     assert res.bindings["input_a"].name == "node_id"
+
 
 def test_pattern_any_of(complex_model):
     parser = ONNXParser(complex_model)
@@ -63,6 +69,7 @@ def test_pattern_any_of(complex_model):
     assert res2 is not None
     assert res2.start.op_type == "Tanh"
 
+
 def test_pattern_commutative(simple_model):
     parser = ONNXParser(simple_model)
 
@@ -75,4 +82,4 @@ def test_pattern_commutative(simple_model):
     # Pattern: Add(const, any)
     pat = Pattern.op("Add", Pattern.const(B_val), Pattern.any())
     res = parser.pattern_detect(pat, start_node="node_add")
-    assert res is not None # Should match because Add is commutative
+    assert res is not None  # Should match because Add is commutative
