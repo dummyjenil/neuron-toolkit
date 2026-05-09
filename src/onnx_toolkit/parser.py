@@ -57,10 +57,13 @@ class LazyTensorMap(dict):
 class ONNXParser:
     """Load an ONNX model and expose it for querying and pattern matching."""
 
-    def __init__(self, onnx_path: str, *, infer_shapes: bool = True) -> None:
-        """Initialize the ONNXParser with a model file."""
-        log.info("Loading ONNX model from %r", onnx_path)
-        self.model: ModelProto = onnx.load(onnx_path)
+    def __init__(self, onnx_source: str | ModelProto, *, infer_shapes: bool = True) -> None:
+        """Initialize the ONNXParser with a model file or ModelProto."""
+        if isinstance(onnx_source, ModelProto):
+            self.model = onnx_source
+        else:
+            log.info("Loading ONNX model from %r", onnx_source)
+            self.model: ModelProto = onnx.load(onnx_source)
 
         if infer_shapes:
             try:

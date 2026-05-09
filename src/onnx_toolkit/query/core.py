@@ -11,6 +11,7 @@ from onnx.onnx_pb import NodeProto
 
 from onnx_toolkit._types import TensorMap
 from onnx_toolkit._utils import ShapeInfo, _GraphShim, _node_attrs
+from onnx_toolkit.rewriter import GraphRewriter
 
 if TYPE_CHECKING:
     from onnx_toolkit.pattern import MatchResult, Pattern
@@ -260,6 +261,28 @@ class ONNXQuery:
                 matched.append(node)
         return self._clone(matched)
 
+    def follow(self, pattern: Pattern) -> ONNXQuery:
+        """Follow a pattern forward from the current nodes.
+        Returns the root nodes of matches that incorporate the current nodes.
+        """
+        from onnx_toolkit.pattern import PatternDetector
+
+        shim = _GraphShim(self.all_nodes, self.tensor_map, self.shape_info)
+        results = []
+        current_ids = {id(n) for n in self.nodes}
+
+        # We search for all matches in the graph
+        det = PatternDetector(shim)
+        det._output_to_node = self._output_map
+        all_matches = det.find_all(pattern)
+
+        for m in all_matches:
+            # If any of our current nodes are part of this match, we include the match root (start)
+            if any(id(n) in current_ids for n in m.nodes):
+                results.append(m.start)
+
+        return self._clone(results)
+
     def match_results(self, pattern: Pattern) -> list[MatchResult]:
         """Return all MatchResult objects for matches starting at these nodes."""
         from onnx_toolkit.pattern import PatternDetector
@@ -273,6 +296,63 @@ class ONNXQuery:
                 r.tensor_map = self.tensor_map
                 results.append(r)
         return results
+
+    def select(self, pattern: Pattern) -> list[MatchResult]:
+        """Alias for match_results — find all pattern matches starting from these nodes."""
+        return self.match_results(pattern)
+
+    def where(self, pattern: Pattern) -> ONNXQuery:
+        """Filter nodes that are the start of a match for *pattern*."""
+        return self.matches(pattern)
+
+    def replace(
+        self,
+        pattern: Pattern,
+        new_op: str,
+        name: str | None = None,
+        **attrs: Any,
+    ) -> GraphRewriter:
+        """Replace matches of *pattern* starting at these nodes with a new operator."""
+        # We need a dummy parser to initialize the rewriter
+        from onnx_toolkit.parser import ONNXParser
+
+        # This is a bit hacky but keeps things decoupled
+        class _ProxyParser:
+            def __init__(self, nodes, tensor_map):
+                from onnx import helper
+
+                self.model = helper.make_model(helper.make_graph(nodes, "temp", [], []))
+                self.nodes = nodes
+                self.tensor_map = tensor_map
+
+        # In reality, we should probably have GraphRewriter accept nodes/tensor_map directly
+        # But for now, let's try to get the parent parser if possible or create a proxy
+        # Since we don't store the parser, we'll create a minimal proxy
+        proxy = _ProxyParser(self.all_nodes, self.tensor_map)
+        rewriter = GraphRewriter(proxy)  # type: ignore
+
+        for r in self.select(pattern):
+            rewriter.replace_from_result(r, new_op, name=name, **attrs)
+        return rewriter
+
+    def to_pattern(self) -> Pattern:
+        """Convert the first node of this query into a reusable Pattern.
+
+        If multiple nodes are present, only the first one is used.
+        """
+        from onnx_toolkit.pattern import Pattern
+
+        if not self.nodes:
+            msg = "Cannot convert empty query to pattern"
+            raise ValueError(msg)
+
+        node = self.nodes[0]
+        # Basic conversion: op_type + attributes
+        p = Pattern.op(node.op_type)
+        attrs = _node_attrs(node)
+        if attrs:
+            p = p.where(**attrs)
+        return p
 
     # --- Ordering ---
 

@@ -27,3 +27,13 @@ class MatchResult(BaseModel):
         from onnx_toolkit.query import ONNXQuery
 
         return ONNXQuery(list(self.nodes), self.tensor_map, list(self.nodes))
+
+    @property
+    def query(self) -> ONNXQuery:
+        """Return the matched subgraph as an ONNXQuery."""
+        return self.as_query()
+
+    @property
+    def subgraph(self) -> ONNXQuery:
+        """Alias for query."""
+        return self.as_query()
