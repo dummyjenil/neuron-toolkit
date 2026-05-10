@@ -14,7 +14,9 @@ def test_query_filters(complex_model):
     assert q.find_by_name("n").count() == 6
 
     # tensor
-    assert q.find_by_tensor("relu_out").count() == 2  # Produces by Relu, consumed by Add
+    assert (
+        q.find_by_tensor("relu_out").count() == 2
+    )  # Produces by Relu, consumed by Add
 
     # attribute (Relu doesn't have attributes, let's use a model with attributes if needed, but we can test missing)
     assert q.find_by_attribute("non_existent").count() == 0

@@ -44,7 +44,9 @@ def test_detector_basic_match(branching_model):
     # Match Mul(Add(Relu, const), const)
     p = Pattern.op(
         "Mul",
-        Pattern.op("Add", Pattern.op("Relu").capture("r"), Pattern.const(1.0)).capture("a"),
+        Pattern.op("Add", Pattern.op("Relu").capture("r"), Pattern.const(1.0)).capture(
+            "a"
+        ),
         Pattern.const(2.0),
     ).capture("m")
 

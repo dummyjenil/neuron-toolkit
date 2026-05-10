@@ -20,7 +20,9 @@ def simple_model(tmp_path):
 
     output = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 3])
 
-    graph = helper.make_graph([node_id, node_add, node_mul], "test_graph", [A], [output], [B, C])
+    graph = helper.make_graph(
+        [node_id, node_add, node_mul], "test_graph", [A], [output], [B, C]
+    )
 
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
 
@@ -62,7 +64,11 @@ def complex_model(tmp_path):
     out2 = helper.make_tensor_value_info("output2", TensorProto.FLOAT, [1, 10])
 
     graph = helper.make_graph(
-        [node0, node1, node2, node3, node4, node5], "complex_graph", [A], [out1, out2], [B, C]
+        [node0, node1, node2, node3, node4, node5],
+        "complex_graph",
+        [A],
+        [out1, out2],
+        [B, C],
     )
 
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])

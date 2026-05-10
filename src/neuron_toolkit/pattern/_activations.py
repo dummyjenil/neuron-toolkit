@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from neuron_toolkit.pattern.dsl import Pattern
@@ -72,7 +72,11 @@ class ActivationMixin:
     @classmethod
     def gelu(cls, x: Pattern) -> Pattern:
         """Create a GeLU pattern (standard approximation)."""
-        return x * (cls.op("Erf")(x / cls.const(1.41421356237)) + cls.const(1.0)) * cls.const(0.5)
+        return (
+            x
+            * (cls.op("Erf")(x / cls.const(1.41421356237)) + cls.const(1.0))
+            * cls.const(0.5)
+        )
 
     @classmethod
     def gelu_tanh(cls, x: Pattern) -> Pattern:
@@ -83,7 +87,8 @@ class ActivationMixin:
             * (
                 cls.const(1.0)
                 + cls.tanh(
-                    cls.const(0.7978845608) * (x + cls.const(0.044715) * (x**cls.const(3.0)))
+                    cls.const(0.7978845608)
+                    * (x + cls.const(0.044715) * (x ** cls.const(3.0)))
                 )
             )
         )

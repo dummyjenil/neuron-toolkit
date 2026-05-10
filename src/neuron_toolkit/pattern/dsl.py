@@ -1,10 +1,11 @@
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from neuron_toolkit.graph import ONNXGraph
-    from neuron_toolkit.query import ONNXQuery
+    from neuron_toolkit.graph import NeuronGraph
     from neuron_toolkit.pattern.models import MatchResult
+    from neuron_toolkit.query import NeuronQuery
 
 # Sentinel op strings
 _WILDCARD = "__any__"
@@ -18,10 +19,10 @@ from neuron_toolkit.pattern._activations import ActivationMixin
 
 
 class Pattern(ActivationMixin):
-    """DSL for describing ONNX subgraph structures.
+    """DSL for describing subgraph structures.
 
     A Pattern represents a symbolic subgraph that can be matched against an actual
-    ONNX model. It supports wildcards, constant matching, attribute constraints,
+    model. It supports wildcards, constant matching, attribute constraints,
     and output shape/dtype requirements.
 
     Example:
@@ -45,7 +46,7 @@ class Pattern(ActivationMixin):
         """Initialize a Pattern node.
 
         Args:
-            op_type: The ONNX operator type (e.g., "Conv", "Add").
+            op_type: The operator type (e.g., "Conv", "Add").
             inputs: List of input patterns.
             value: Specific value to match for constant nodes.
             _alternatives: Internal list for any_of patterns.
@@ -78,7 +79,7 @@ class Pattern(ActivationMixin):
         """Create a pattern for a specific operator and its inputs.
 
         Args:
-            op_type: The ONNX operator type.
+            op_type: The operator type.
             *input_patterns: Input patterns or raw values (coerced to constants).
         """
         return cls(op_type=op_type, inputs=[_coerce(p) for p in input_patterns])
@@ -149,39 +150,39 @@ class Pattern(ActivationMixin):
 
     # --- Fusion Engine Integration ---
 
-    def find(self, target: ONNXGraph | ONNXQuery) -> MatchResult | None:
+    def find(self, target: NeuronGraph | NeuronQuery) -> MatchResult | None:
         """Find the first match of this pattern in the target graph or query."""
-        from neuron_toolkit.graph import ONNXGraph
-        from neuron_toolkit.query import ONNXQuery
+        from neuron_toolkit.graph import NeuronGraph
+        from neuron_toolkit.query import NeuronQuery
 
-        if isinstance(target, ONNXGraph):
+        if isinstance(target, NeuronGraph):
             return target.match(self)
-        if isinstance(target, ONNXQuery):
+        if isinstance(target, NeuronQuery):
             results = target.match_results(self)
             return results[0] if results else None
         msg = f"Unsupported target type: {type(target)}"
         raise TypeError(msg)
 
-    def findall(self, target: ONNXGraph | ONNXQuery) -> list[MatchResult]:
+    def findall(self, target: NeuronGraph | NeuronQuery) -> list[MatchResult]:
         """Find all matches of this pattern in the target graph or query."""
-        from neuron_toolkit.graph import ONNXGraph
-        from neuron_toolkit.query import ONNXQuery
+        from neuron_toolkit.graph import NeuronGraph
+        from neuron_toolkit.query import NeuronQuery
 
-        if isinstance(target, ONNXGraph):
+        if isinstance(target, NeuronGraph):
             return target.findall(self)
-        if isinstance(target, ONNXQuery):
+        if isinstance(target, NeuronQuery):
             return target.match_results(self)
         msg = f"Unsupported target type: {type(target)}"
         raise TypeError(msg)
 
-    def filter(self, target: ONNXGraph | ONNXQuery) -> ONNXQuery:
+    def filter(self, target: NeuronGraph | NeuronQuery) -> NeuronQuery:
         """Filter the target graph or query to nodes that match this pattern."""
-        from neuron_toolkit.graph import ONNXGraph
-        from neuron_toolkit.query import ONNXQuery
+        from neuron_toolkit.graph import NeuronGraph
+        from neuron_toolkit.query import NeuronQuery
 
-        if isinstance(target, ONNXGraph):
+        if isinstance(target, NeuronGraph):
             return target.query().matches(self)
-        if isinstance(target, ONNXQuery):
+        if isinstance(target, NeuronQuery):
             return target.matches(self)
         msg = f"Unsupported target type: {type(target)}"
         raise TypeError(msg)
@@ -294,7 +295,6 @@ class Pattern(ActivationMixin):
             _rank=self._rank,
             _dtype=self._dtype,
         )
-
 
 
 def _coerce(x: object) -> Pattern:

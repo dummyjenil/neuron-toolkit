@@ -59,7 +59,9 @@ def test_pattern_any_of(complex_model):
     parser = ONNXParser(complex_model)
 
     # Match either Sigmoid or Tanh
-    pat = Pattern.any_of(Pattern.op("Sigmoid", Pattern.any()), Pattern.op("Tanh", Pattern.any()))
+    pat = Pattern.any_of(
+        Pattern.op("Sigmoid", Pattern.any()), Pattern.op("Tanh", Pattern.any())
+    )
 
     res1 = parser.pattern_detect(pat, start_node="n4")
     assert res1 is not None

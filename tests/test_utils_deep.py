@@ -2,7 +2,7 @@ import numpy as np
 import onnx
 from onnx import TensorProto, helper
 
-from neuron_toolkit._utils import (
+from neuron_toolkit.backends.onnx.utils import (
     _ONNX_DTYPE_TO_NP,
     _attr_value,
     _build_shape_info,
@@ -26,7 +26,8 @@ def test_attr_value_all_types():
     # TENSOR
     tensor_val = np.array([1, 2, 3], dtype=np.float32)
     attr_t = helper.make_attribute(
-        "t", helper.make_tensor("t", TensorProto.FLOAT, [3], tensor_val.tobytes(), raw=True)
+        "t",
+        helper.make_tensor("t", TensorProto.FLOAT, [3], tensor_val.tobytes(), raw=True),
     )
     np.testing.assert_array_equal(_attr_value(attr_t), tensor_val)
 
@@ -47,7 +48,9 @@ def test_attr_value_unrecognized(caplog):
     # Manually create an AttributeProto with an unsupported type if possible
     attr = onnx.AttributeProto()
     attr.name = "unknown"
-    attr.type = onnx.AttributeProto.SPARSE_TENSOR  # Likely not handled in scalar_extractors
+    attr.type = (
+        onnx.AttributeProto.SPARSE_TENSOR
+    )  # Likely not handled in scalar_extractors
 
     with caplog.at_level("DEBUG", logger="neuron_toolkit"):
         val = _attr_value(attr)

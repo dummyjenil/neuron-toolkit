@@ -35,7 +35,7 @@ def test_query_navigation(branching_model):
     n2 = q.name("n2")
     inputs = n2.inputs()
     # n2 inputs are [add1_out, C]. C is an initializer.
-    # ONNXQuery.inputs() usually returns producers of the inputs.
+    # NeuronQuery.inputs() usually returns producers of the inputs.
     assert len(inputs) == 1
     node = inputs.first()
     assert node is not None

@@ -9,7 +9,9 @@ def test_rewriter_replace(simple_model, tmp_path):
     add_node = parser.find().find_by_op_type("Add").single_node
 
     rw = parser.rewriter()
-    rw.replace([add_node], "Sub", inputs=list(add_node.input), outputs=list(add_node.output))
+    rw.replace(
+        [add_node], "Sub", inputs=list(add_node.input), outputs=list(add_node.output)
+    )
 
     new_model = rw.build()
     assert len(new_model.graph.node) == 3

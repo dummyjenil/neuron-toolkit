@@ -1,3 +1,3 @@
-from .core import ONNXQuery
+from .core import NeuronQuery
 
-__all__ = ["ONNXQuery"]
+__all__ = ["NeuronQuery"]

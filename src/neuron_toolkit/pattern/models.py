@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from onnx.onnx_pb import NodeProto
 from pydantic import BaseModel, ConfigDict, Field
 
 from neuron_toolkit._types import TensorMap
 
 if TYPE_CHECKING:
-    from neuron_toolkit.query import ONNXQuery
+    from neuron_toolkit.query import NeuronQuery
 
 
 class MatchResult(BaseModel):
@@ -16,24 +15,24 @@ class MatchResult(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    start: NodeProto
-    end: NodeProto
-    nodes: list[NodeProto] = Field(default_factory=list)
-    bindings: dict[str, NodeProto] = Field(default_factory=dict)
+    start: Any
+    end: Any
+    nodes: list[Any] = Field(default_factory=list)
+    bindings: dict[str, Any] = Field(default_factory=dict)
     tensor_map: TensorMap = Field(default_factory=dict, exclude=True, repr=False)
 
-    def as_query(self) -> ONNXQuery:
-        """Return the matched subgraph as an ONNXQuery."""
-        from neuron_toolkit.query import ONNXQuery
+    def as_query(self) -> NeuronQuery:
+        """Return the matched subgraph as an NeuronQuery."""
+        from neuron_toolkit.query import NeuronQuery
 
-        return ONNXQuery(list(self.nodes), self.tensor_map, list(self.nodes))
+        return NeuronQuery(list(self.nodes), self.tensor_map, list(self.nodes))
 
     @property
-    def query(self) -> ONNXQuery:
-        """Return the matched subgraph as an ONNXQuery."""
+    def query(self) -> NeuronQuery:
+        """Return the matched subgraph as an NeuronQuery."""
         return self.as_query()
 
     @property
-    def subgraph(self) -> ONNXQuery:
+    def subgraph(self) -> NeuronQuery:
         """Alias for query."""
         return self.as_query()

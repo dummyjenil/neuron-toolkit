@@ -2,7 +2,7 @@ import pytest
 
 from neuron_toolkit.parser import ONNXParser
 from neuron_toolkit.pattern import Pattern
-from neuron_toolkit.query import ONNXQuery
+from neuron_toolkit.query import NeuronQuery
 
 
 def test_parser_init(simple_model):
@@ -26,7 +26,7 @@ def test_parser_no_infer(simple_model):
 def test_parser_find(simple_model):
     parser = ONNXParser(simple_model)
     query = parser.find()
-    assert isinstance(query, ONNXQuery)
+    assert isinstance(query, NeuronQuery)
     assert len(query.all_nodes) == 3
 
 

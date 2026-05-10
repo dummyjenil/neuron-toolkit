@@ -30,7 +30,13 @@ def test_pattern_any_of():
 
 
 def test_pattern_fluent_api():
-    p = Pattern.any().capture("x").where(alpha=0.5).with_output_rank(2).with_dtype("float32")
+    p = (
+        Pattern.any()
+        .capture("x")
+        .where(alpha=0.5)
+        .with_output_rank(2)
+        .with_dtype("float32")
+    )
     assert p._capture == "x"
     assert p._constraints == {"alpha": 0.5}
     assert p._rank == 2
