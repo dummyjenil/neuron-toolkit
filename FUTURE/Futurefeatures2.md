@@ -225,7 +225,7 @@ Ye TensorRT / TVM style optimization ban jayega.
 # Suggested Internal Modules
 
 ```text
-onnx_toolkit/
+neuron_toolkit/
 │
 ├── parser/
 ├── graph/

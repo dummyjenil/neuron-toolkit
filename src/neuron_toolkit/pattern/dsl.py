@@ -2,9 +2,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from onnx_toolkit.graph import ONNXGraph
-    from onnx_toolkit.query import ONNXQuery
-    from onnx_toolkit.pattern.models import MatchResult
+    from neuron_toolkit.graph import ONNXGraph
+    from neuron_toolkit.query import ONNXQuery
+    from neuron_toolkit.pattern.models import MatchResult
 
 # Sentinel op strings
 _WILDCARD = "__any__"
@@ -14,7 +14,7 @@ _CONST_PAT = "__const__"
 MIN_ALTERNATIVES = 2
 
 
-from onnx_toolkit.pattern._activations import ActivationMixin
+from neuron_toolkit.pattern._activations import ActivationMixin
 
 
 class Pattern(ActivationMixin):
@@ -25,7 +25,7 @@ class Pattern(ActivationMixin):
     and output shape/dtype requirements.
 
     Example:
-        >>> from onnx_toolkit.pattern.dsl import Pattern
+        >>> from neuron_toolkit.pattern.dsl import Pattern
         >>> p = Pattern.op("Add", Pattern.any(), Pattern.const(1.0))
         >>> p = p.capture("my_add").where(axis=1)
     """
@@ -151,8 +151,8 @@ class Pattern(ActivationMixin):
 
     def find(self, target: ONNXGraph | ONNXQuery) -> MatchResult | None:
         """Find the first match of this pattern in the target graph or query."""
-        from onnx_toolkit.graph import ONNXGraph
-        from onnx_toolkit.query import ONNXQuery
+        from neuron_toolkit.graph import ONNXGraph
+        from neuron_toolkit.query import ONNXQuery
 
         if isinstance(target, ONNXGraph):
             return target.match(self)
@@ -164,8 +164,8 @@ class Pattern(ActivationMixin):
 
     def findall(self, target: ONNXGraph | ONNXQuery) -> list[MatchResult]:
         """Find all matches of this pattern in the target graph or query."""
-        from onnx_toolkit.graph import ONNXGraph
-        from onnx_toolkit.query import ONNXQuery
+        from neuron_toolkit.graph import ONNXGraph
+        from neuron_toolkit.query import ONNXQuery
 
         if isinstance(target, ONNXGraph):
             return target.findall(self)
@@ -176,8 +176,8 @@ class Pattern(ActivationMixin):
 
     def filter(self, target: ONNXGraph | ONNXQuery) -> ONNXQuery:
         """Filter the target graph or query to nodes that match this pattern."""
-        from onnx_toolkit.graph import ONNXGraph
-        from onnx_toolkit.query import ONNXQuery
+        from neuron_toolkit.graph import ONNXGraph
+        from neuron_toolkit.query import ONNXQuery
 
         if isinstance(target, ONNXGraph):
             return target.query().matches(self)

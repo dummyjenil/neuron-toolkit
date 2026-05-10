@@ -9,14 +9,14 @@ import networkx as nx
 import numpy as np
 from onnx.onnx_pb import NodeProto
 
-from onnx_toolkit._types import TensorMap
-from onnx_toolkit._utils import ShapeInfo, _GraphShim, _node_attrs
-from onnx_toolkit.rewriter import GraphRewriter
+from neuron_toolkit._types import TensorMap
+from neuron_toolkit._utils import ShapeInfo, _GraphShim, _node_attrs
+from neuron_toolkit.rewriter import GraphRewriter
 
 if TYPE_CHECKING:
-    from onnx_toolkit.pattern import MatchResult, Pattern
+    from neuron_toolkit.pattern import MatchResult, Pattern
 
-log = logging.getLogger("onnx_toolkit.query")
+log = logging.getLogger("neuron_toolkit.query")
 
 MAX_REPR_NODES = 15
 
@@ -250,7 +250,7 @@ class ONNXQuery:
 
     def matches(self, pattern: Pattern) -> ONNXQuery:
         """Return nodes that are the start of a match for *pattern*."""
-        from onnx_toolkit.pattern import PatternDetector
+        from neuron_toolkit.pattern import PatternDetector
 
         shim = _GraphShim(self.all_nodes, self.tensor_map, self.shape_info)
         matched = []
@@ -265,7 +265,7 @@ class ONNXQuery:
         """Follow a pattern forward from the current nodes.
         Returns the root nodes of matches that incorporate the current nodes.
         """
-        from onnx_toolkit.pattern import PatternDetector
+        from neuron_toolkit.pattern import PatternDetector
 
         shim = _GraphShim(self.all_nodes, self.tensor_map, self.shape_info)
         results = []
@@ -285,7 +285,7 @@ class ONNXQuery:
 
     def match_results(self, pattern: Pattern) -> list[MatchResult]:
         """Return all MatchResult objects for matches starting at these nodes."""
-        from onnx_toolkit.pattern import PatternDetector
+        from neuron_toolkit.pattern import PatternDetector
 
         shim = _GraphShim(self.all_nodes, self.tensor_map, self.shape_info)
         results = []
@@ -314,7 +314,7 @@ class ONNXQuery:
     ) -> GraphRewriter:
         """Replace matches of *pattern* starting at these nodes with a new operator."""
         # We need a dummy parser to initialize the rewriter
-        from onnx_toolkit.parser import ONNXParser
+        from neuron_toolkit.parser import ONNXParser
 
         # This is a bit hacky but keeps things decoupled
         class _ProxyParser:
@@ -340,7 +340,7 @@ class ONNXQuery:
 
         If multiple nodes are present, only the first one is used.
         """
-        from onnx_toolkit.pattern import Pattern
+        from neuron_toolkit.pattern import Pattern
 
         if not self.nodes:
             msg = "Cannot convert empty query to pattern"

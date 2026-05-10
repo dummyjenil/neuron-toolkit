@@ -1,5 +1,5 @@
 import pytest
-from onnx_toolkit import ONNXGraph, Pattern, ONNXQuery
+from neuron_toolkit import ONNXGraph, Pattern, ONNXQuery
 
 def test_onnx_graph_entry_point(complex_model):
     # Test ONNXGraph initialization and basic methods
@@ -101,7 +101,7 @@ def test_graph_passes(simple_model):
     assert callable(graph.passes.fuse_conv_bn)
     # The example pass doesn't actually do anything useful on simple_model yet,
     # but we verify it returns a rewriter
-    from onnx_toolkit.rewriter import GraphRewriter
+    from neuron_toolkit.rewriter import GraphRewriter
     assert isinstance(graph.passes.fuse_conv_bn(), GraphRewriter)
 
 def test_pattern_traversal():

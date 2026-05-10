@@ -1,4 +1,4 @@
-"""onnx_toolkit._utils — internal helpers."""
+"""neuron_toolkit._utils — internal helpers."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from onnx import AttributeProto, TensorProto
 from onnx.numpy_helper import to_array
 from onnx.onnx_pb import NodeProto
 
-log = logging.getLogger("onnx_toolkit")
+log = logging.getLogger("neuron_toolkit")
 
 # Map ONNX dtype int → numpy dtype string (covers all standard types)
 _ONNX_DTYPE_TO_NP: dict[int, str] = {

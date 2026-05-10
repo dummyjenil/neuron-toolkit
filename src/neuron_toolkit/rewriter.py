@@ -1,4 +1,4 @@
-"""onnx_toolkit.rewriter.
+"""neuron_toolkit.rewriter.
 
 GraphRewriter — modify an ONNX graph.
 """
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 from .pattern import MatchResult
 
-log = logging.getLogger("onnx_toolkit.rewriter")
+log = logging.getLogger("neuron_toolkit.rewriter")
 
 
 class GraphRewriter:

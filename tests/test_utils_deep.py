@@ -2,7 +2,7 @@ import numpy as np
 import onnx
 from onnx import TensorProto, helper
 
-from onnx_toolkit._utils import (
+from neuron_toolkit._utils import (
     _ONNX_DTYPE_TO_NP,
     _attr_value,
     _build_shape_info,
@@ -49,7 +49,7 @@ def test_attr_value_unrecognized(caplog):
     attr.name = "unknown"
     attr.type = onnx.AttributeProto.SPARSE_TENSOR  # Likely not handled in scalar_extractors
 
-    with caplog.at_level("DEBUG", logger="onnx_toolkit"):
+    with caplog.at_level("DEBUG", logger="neuron_toolkit"):
         val = _attr_value(attr)
         assert val is None
         assert "unrecognised attribute type" in caplog.text

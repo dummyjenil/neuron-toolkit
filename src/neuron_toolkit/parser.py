@@ -1,4 +1,4 @@
-"""onnx_toolkit.parser.
+"""neuron_toolkit.parser.
 
 ONNXParser — entry point for model analysis.
 """
@@ -13,15 +13,15 @@ import onnx
 from onnx import ModelProto, numpy_helper
 from onnx.onnx_pb import NodeProto
 
-from onnx_toolkit import _GraphShim
-from onnx_toolkit._utils import ShapeInfo, _build_shape_info
-from onnx_toolkit.pattern import MatchResult, Pattern, PatternDetector
-from onnx_toolkit.query import ONNXQuery
+from neuron_toolkit import _GraphShim
+from neuron_toolkit._utils import ShapeInfo, _build_shape_info
+from neuron_toolkit.pattern import MatchResult, Pattern, PatternDetector
+from neuron_toolkit.query import ONNXQuery
 
 if TYPE_CHECKING:
-    from onnx_toolkit.rewriter import GraphRewriter
+    from neuron_toolkit.rewriter import GraphRewriter
 
-log = logging.getLogger("onnx_toolkit")
+log = logging.getLogger("neuron_toolkit")
 
 
 class LazyTensorMap(dict):
@@ -114,7 +114,7 @@ class ONNXParser:
 
     def rewriter(self) -> GraphRewriter:
         """Return a :class:`GraphRewriter` bound to this model."""
-        from onnx_toolkit.rewriter import GraphRewriter
+        from neuron_toolkit.rewriter import GraphRewriter
 
         return GraphRewriter(self)
 

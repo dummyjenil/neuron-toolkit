@@ -1,6 +1,6 @@
 import pytest
 
-from onnx_toolkit.pattern.dsl import _ANY_OF, _CONST_PAT, _WILDCARD, Pattern
+from neuron_toolkit.pattern.dsl import _ANY_OF, _CONST_PAT, _WILDCARD, Pattern
 
 
 def test_pattern_basics():

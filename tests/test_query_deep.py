@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from onnx import TensorProto, helper
 
-from onnx_toolkit.parser import ONNXParser
+from neuron_toolkit.parser import ONNXParser
 
 
 def test_query_basics(branching_model):

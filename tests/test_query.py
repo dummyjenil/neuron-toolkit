@@ -1,4 +1,4 @@
-from onnx_toolkit.parser import ONNXParser
+from neuron_toolkit.parser import ONNXParser
 
 
 def test_query_filters(complex_model):

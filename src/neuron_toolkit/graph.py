@@ -1,4 +1,4 @@
-"""onnx_toolkit.graph.
+"""neuron_toolkit.graph.
 
 Unified entry point for ONNX graph analysis, querying, and transformation.
 """
@@ -8,16 +8,16 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from onnx_toolkit.parser import ONNXParser
+from neuron_toolkit.parser import ONNXParser
 
 if TYPE_CHECKING:
     from onnx.onnx_pb import NodeProto
 
-    from onnx_toolkit.pattern import MatchResult, Pattern
-    from onnx_toolkit.query import ONNXQuery
-    from onnx_toolkit.rewriter import GraphRewriter
+    from neuron_toolkit.pattern import MatchResult, Pattern
+    from neuron_toolkit.query import ONNXQuery
+    from neuron_toolkit.rewriter import GraphRewriter
 
-log = logging.getLogger("onnx_toolkit.graph")
+log = logging.getLogger("neuron_toolkit.graph")
 
 
 class ONNXGraph(ONNXParser):
@@ -34,7 +34,7 @@ class ONNXGraph(ONNXParser):
 
     def findall(self, pattern: Pattern) -> list[MatchResult]:
         """Find all occurrences of *pattern* in the graph."""
-        from onnx_toolkit.pattern import PatternDetector
+        from neuron_toolkit.pattern import PatternDetector
 
         det = PatternDetector(self._shim())
         return det.find_all(pattern)
@@ -57,7 +57,7 @@ class ONNXGraph(ONNXParser):
         return rewriter
 
     def _shim(self) -> Any:
-        from onnx_toolkit._utils import _GraphShim
+        from neuron_toolkit._utils import _GraphShim
 
         return _GraphShim(self.nodes, self.tensor_map, self.shape_info)
 
@@ -75,7 +75,7 @@ class GraphPasses:
 
     def fuse_conv_bn(self) -> GraphRewriter:
         """Example pass: Fuse Conv and BatchNormalization."""
-        from onnx_toolkit.pattern import Pattern
+        from neuron_toolkit.pattern import Pattern
 
         conv = Pattern.op("Conv").capture("conv")
         bn = Pattern.op("BatchNormalization", conv).capture("bn")

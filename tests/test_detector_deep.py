@@ -2,8 +2,8 @@ import numpy as np
 import pytest
 from onnx import TensorProto, helper
 
-from onnx_toolkit.parser import ONNXParser
-from onnx_toolkit.pattern import Pattern, PatternDetector
+from neuron_toolkit.parser import ONNXParser
+from neuron_toolkit.pattern import Pattern, PatternDetector
 
 
 @pytest.fixture

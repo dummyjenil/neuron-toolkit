@@ -1,7 +1,7 @@
 import numpy as np
 
-from onnx_toolkit.parser import ONNXParser
-from onnx_toolkit.pattern import Pattern
+from neuron_toolkit.parser import ONNXParser
+from neuron_toolkit.pattern import Pattern
 
 
 def test_pattern_dsl():

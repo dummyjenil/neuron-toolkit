@@ -182,17 +182,17 @@ separate systems hain.
 ## Better Structure
 
 ```text
-onnx_toolkit.graph
-onnx_toolkit.patterns
-onnx_toolkit.query
+neuron_toolkit.graph
+neuron_toolkit.patterns
+neuron_toolkit.query
 ```
 
 or best:
 
 ```text
-onnx_toolkit.graph.Pattern
-onnx_toolkit.graph.Query
-onnx_toolkit.graph.Match
+neuron_toolkit.graph.Pattern
+neuron_toolkit.graph.Query
+neuron_toolkit.graph.Match
 ```
 
 ---

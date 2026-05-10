@@ -1,4 +1,4 @@
-"""onnx_toolkit.
+"""neuron_toolkit.
 
 Unified ONNX parsing, querying, pattern-matching, and graph-rewriting library.
 """

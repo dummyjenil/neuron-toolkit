@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    from onnx_toolkit.pattern.dsl import Pattern
+    from neuron_toolkit.pattern.dsl import Pattern
 
 
 class ActivationMixin:
@@ -96,7 +96,7 @@ class ActivationMixin:
     @classmethod
     def relu6(cls, x: Pattern) -> Pattern:
         """Create a ReLU6 pattern."""
-        from onnx_toolkit.pattern.dsl import Pattern, _coerce
+        from neuron_toolkit.pattern.dsl import Pattern, _coerce
 
         return Pattern("Clip", [_coerce(x), cls.const(0.0), cls.const(6.0)])
 

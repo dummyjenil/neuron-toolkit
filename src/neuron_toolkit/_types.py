@@ -1,4 +1,4 @@
-"""onnx_toolkit._types — shared type aliases."""
+"""neuron_toolkit._types — shared type aliases."""
 
 import numpy as np
 

@@ -11,14 +11,14 @@ import numpy as np
 from onnx import numpy_helper
 from onnx.onnx_pb import NodeProto
 
-from onnx_toolkit._utils import _node_attrs
-from onnx_toolkit.pattern.dsl import _ANY_OF, _CONST_PAT, _WILDCARD
+from neuron_toolkit._utils import _node_attrs
+from neuron_toolkit.pattern.dsl import _ANY_OF, _CONST_PAT, _WILDCARD
 
 if TYPE_CHECKING:
-    from onnx_toolkit.pattern.detector import PatternDetector
-    from onnx_toolkit.pattern.dsl import Pattern
+    from neuron_toolkit.pattern.detector import PatternDetector
+    from neuron_toolkit.pattern.dsl import Pattern
 
-log = logging.getLogger("onnx_toolkit.detect")
+log = logging.getLogger("neuron_toolkit.detect")
 
 
 @dataclass

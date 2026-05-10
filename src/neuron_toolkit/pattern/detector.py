@@ -4,10 +4,10 @@ import networkx as nx
 from onnx import ModelProto, numpy_helper
 from onnx.onnx_pb import NodeProto
 
-from onnx_toolkit._utils import ShapeInfo, _GraphShim
-from onnx_toolkit.pattern._matcher import MatchContext, MatchingMixin
-from onnx_toolkit.pattern.dsl import Pattern
-from onnx_toolkit.pattern.models import MatchResult
+from neuron_toolkit._utils import ShapeInfo, _GraphShim
+from neuron_toolkit.pattern._matcher import MatchContext, MatchingMixin
+from neuron_toolkit.pattern.dsl import Pattern
+from neuron_toolkit.pattern.models import MatchResult
 
 
 class PatternDetector(MatchingMixin):

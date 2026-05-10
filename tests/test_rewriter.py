@@ -1,5 +1,5 @@
-from onnx_toolkit.parser import ONNXParser
-from onnx_toolkit.pattern import Pattern
+from neuron_toolkit.parser import ONNXParser
+from neuron_toolkit.pattern import Pattern
 
 
 def test_rewriter_replace(simple_model, tmp_path):

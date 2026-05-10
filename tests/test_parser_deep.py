@@ -1,8 +1,8 @@
 import pytest
 
-from onnx_toolkit.parser import ONNXParser
-from onnx_toolkit.pattern import Pattern
-from onnx_toolkit.query import ONNXQuery
+from neuron_toolkit.parser import ONNXParser
+from neuron_toolkit.pattern import Pattern
+from neuron_toolkit.query import ONNXQuery
 
 
 def test_parser_init(simple_model):

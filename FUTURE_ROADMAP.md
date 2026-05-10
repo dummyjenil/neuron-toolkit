@@ -9,7 +9,7 @@ This document outlines the planned features and implementation steps for the ONN
 - **Query-Native Patterns**: Allow patterns to initiate searches using `Pattern.find()`, `Pattern.findall()`, and `Pattern.filter()`.
 - **MatchResult Integration**: Enable `result.query` or `result.subgraph` to automatically return an `ONNXQuery` object from a match.
 - **Dynamic Pattern Creation**: Implement `query.to_pattern()` to convert any query-selected subgraph into a reusable pattern.
-- **Unified Namespace**: Consolidate core logic under `onnx_toolkit.graph` (e.g., `ONNXGraph`, `Query`, `Match`).
+- **Unified Namespace**: Consolidate core logic under `neuron_toolkit.graph` (e.g., `ONNXGraph`, `Query`, `Match`).
 - **Pattern-Based Selection**: Introduce `query.select(Pattern)` to allow SQL-like filtering using patterns within a query pipeline.
 - **Pattern Traversal**: Add graph-like traversal methods to patterns (`children()`, `parents()`, `walk()`).
 - **Graph Rewrite Engine**: Implement a transformation layer with `query.replace(old_pattern, new_pattern)`.
@@ -111,7 +111,7 @@ This document outlines the planned features and implementation steps for the ONN
 This roadmap organizes the identified features into a logical progression from foundational architecture to advanced neural intelligence.
 
 ### Phase 1: Foundation & Unified Entry (The "Unified Graph" Core)
-1.  **Unified Namespace & API**: Consolidate `query` and `matcher` under a single `onnx_toolkit.graph` namespace.
+1.  **Unified Namespace & API**: Consolidate `query` and `matcher` under a single `neuron_toolkit.graph` namespace.
 2.  **ONNXGraph Class**: Implement the `ONNXGraph` entry point to manage both querying and matching seamlessly.
 3.  **High-Performance IR**: Build the internal graph structure with $O(1)$ tensor producer/consumer lookups.
 4.  **Basic Visualization**: Implement `query.visualize()` for static SVG/PNG rendering of selected nodes.
