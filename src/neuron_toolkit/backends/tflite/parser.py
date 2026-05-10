@@ -121,11 +121,12 @@ class TFLiteParser(BaseParser):
 
             # Get OpType
             builtin_code = opcode.BuiltinCode()
+
             if builtin_code != tflite.BuiltinOperator.CUSTOM:
                 op_type = [
                     k
                     for k, v in tflite.BuiltinOperator.__dict__.items()
-                    if v == builtin_code
+                    if v == builtin_code and not k.startswith("__")
                 ][0]
             else:
                 op_type = opcode.CustomCode().decode("utf-8")

@@ -1,5 +1,6 @@
-from unittest.mock import MagicMock, mock_open, patch
+import os
 
+import flatbuffers
 import pytest
 import tflite
 
@@ -7,106 +8,152 @@ from neuron_toolkit.backends.tflite.parser import TFLiteParser
 from neuron_toolkit.pattern import Pattern
 
 
-class MockBuiltinOperator:
-    ADD = 0
-    CUSTOM = 255
+def create_minimal_tflite_model(path):
+    """Create a minimal TFLite model with one ADD operation."""
+    builder = flatbuffers.Builder(1024)
 
-    # Add other attributes that might be accessed
-    def __iter__(self):
-        return iter({"ADD": 0}.items())
+    # Tensors
+    t1_name = builder.CreateString("input")
+    t2_name = builder.CreateString("output")
+
+    tflite.TensorStartShapeVector(builder, 2)
+    builder.PrependInt32(10)
+    builder.PrependInt32(1)
+    shape_vec = builder.EndVector()
+
+    tflite.TensorStart(builder)
+    tflite.TensorAddName(builder, t1_name)
+    tflite.TensorAddShape(builder, shape_vec)
+    tflite.TensorAddType(builder, tflite.TensorType.FLOAT32)
+    t1 = tflite.TensorEnd(builder)
+
+    tflite.TensorStart(builder)
+    tflite.TensorAddName(builder, t2_name)
+    tflite.TensorAddShape(builder, shape_vec)
+    tflite.TensorAddType(builder, tflite.TensorType.FLOAT32)
+    t2 = tflite.TensorEnd(builder)
+
+    tflite.SubGraphStartTensorsVector(builder, 2)
+    builder.PrependUOffsetTRelative(t2)
+    builder.PrependUOffsetTRelative(t1)
+    tensors_vec = builder.EndVector()
+
+    # Inputs/Outputs
+    tflite.SubGraphStartInputsVector(builder, 1)
+    builder.PrependInt32(0)
+    inputs_vec = builder.EndVector()
+
+    tflite.SubGraphStartOutputsVector(builder, 1)
+    builder.PrependInt32(1)
+    outputs_vec = builder.EndVector()
+
+    # Operator
+    tflite.OperatorStartInputsVector(builder, 1)
+    builder.PrependInt32(0)
+    op_in_vec = builder.EndVector()
+
+    tflite.OperatorStartOutputsVector(builder, 1)
+    builder.PrependInt32(1)
+    op_out_vec = builder.EndVector()
+
+    tflite.OperatorStart(builder)
+    tflite.OperatorAddOpcodeIndex(builder, 0)
+    tflite.OperatorAddInputs(builder, op_in_vec)
+    tflite.OperatorAddOutputs(builder, op_out_vec)
+    op = tflite.OperatorEnd(builder)
+
+    tflite.SubGraphStartOperatorsVector(builder, 1)
+    builder.PrependUOffsetTRelative(op)
+    ops_vec = builder.EndVector()
+
+    # SubGraph
+    tflite.SubGraphStart(builder)
+    tflite.SubGraphAddTensors(builder, tensors_vec)
+    tflite.SubGraphAddInputs(builder, inputs_vec)
+    tflite.SubGraphAddOutputs(builder, outputs_vec)
+    tflite.SubGraphAddOperators(builder, ops_vec)
+    subgraph = tflite.SubGraphEnd(builder)
+
+    tflite.ModelStartSubgraphsVector(builder, 1)
+    builder.PrependUOffsetTRelative(subgraph)
+    subgraphs_vec = builder.EndVector()
+
+    # Opcode
+    tflite.OperatorCodeStart(builder)
+    tflite.OperatorCodeAddBuiltinCode(builder, tflite.BuiltinOperator.ADD)
+    opcode = tflite.OperatorCodeEnd(builder)
+
+    tflite.ModelStartOperatorCodesVector(builder, 1)
+    builder.PrependUOffsetTRelative(opcode)
+    opcodes_vec = builder.EndVector()
+
+    # Buffers
+    tflite.BufferStart(builder)
+    b0 = tflite.BufferEnd(builder)
+    tflite.ModelStartBuffersVector(builder, 1)
+    builder.PrependUOffsetTRelative(b0)
+    buffers_vec = builder.EndVector()
+
+    # Model
+    tflite.ModelStart(builder)
+    tflite.ModelAddSubgraphs(builder, subgraphs_vec)
+    tflite.ModelAddOperatorCodes(builder, opcodes_vec)
+    tflite.ModelAddBuffers(builder, buffers_vec)
+    model = tflite.ModelEnd(builder)
+
+    builder.Finish(model)
+    with open(path, "wb") as f:
+        f.write(builder.Output())
 
 
 @pytest.fixture
-def mock_tflite_model():
-    mock_model = MagicMock()
-    mock_subgraph = MagicMock()
-    mock_model.Subgraphs.return_value = mock_subgraph
-
-    # Setup subgraph
-    mock_subgraph.TensorsLength.return_value = 2
-
-    t1 = MagicMock()
-    t1.Name.return_value = b"input"
-    t1.ShapeLength.return_value = 2
-    t1.Shape.side_effect = lambda j: [1, 10][j]
-    t1.Type.return_value = 0  # FLOAT32
-
-    t2 = MagicMock()
-    t2.Name.return_value = b"output"
-    t2.ShapeLength.return_value = 2
-    t2.Shape.side_effect = lambda j: [1, 5][j]
-    t2.Type.return_value = 0
-
-    def get_tensor(i):
-        if i == 0:
-            return t1
-        return t2
-
-    mock_subgraph.Tensors.side_effect = get_tensor
-
-    # Setup operators
-    mock_subgraph.OperatorsLength.return_value = 1
-    mock_op = MagicMock()
-    mock_subgraph.Operators.return_value = mock_op
-    mock_op.OpcodeIndex.return_value = 0
-    mock_op.InputsLength.return_value = 1
-    mock_op.Inputs.return_value = 0
-    mock_op.OutputsLength.return_value = 1
-    mock_op.Outputs.return_value = 1
-    mock_op.BuiltinOptions.return_value = None
-
-    mock_opcode = MagicMock()
-    mock_model.OperatorCodes.return_value = mock_opcode
-    mock_opcode.BuiltinCode.return_value = 0  # ADD
-
-    # We need to mock BuiltinOperator.__dict__ because it's used in a loop in parser.py
-    # Since we can't patch __dict__ directly, we can mock the whole class
-    mock_builtin_op = MagicMock()
-    mock_builtin_op.ADD = 0
-    mock_builtin_op.CUSTOM = 255
-    # This is what parser.py does: [k for k, v in tflite.BuiltinOperator.__dict__.items() if v == builtin_code]
-    # So we MUST mock __dict__ or the class.
-    # Actually, we can patch 'tflite.BuiltinOperator' with an object that has a __dict__
-
-    with patch.object(tflite.Model, "GetRootAsModel", return_value=mock_model):
-        with patch("tflite.BuiltinOperator") as mocked_builtin_op:
-            mocked_builtin_op.__dict__ = {"ADD": 0, "CUSTOM": 255}
-            yield mock_model
+def tflite_model_path(tmp_path):
+    path = os.path.join(tmp_path, "test.tflite")
+    create_minimal_tflite_model(path)
+    return path
 
 
-def test_tflite_parser_load_mocked(mock_tflite_model):
-    with patch("builtins.open", mock_open(read_data=b"dummy")):
-        parser = TFLiteParser("dummy.tflite")
-        assert len(parser.nodes) == 1
-        assert parser.nodes[0].op_type == "ADD"
-        assert "input" in parser.nodes[0].input
-        assert "output" in parser.nodes[0].output
+def test_tflite_parser_load(tflite_model_path):
+    parser = TFLiteParser(tflite_model_path)
+    assert len(parser.nodes) == 1
+    assert parser.nodes[0].op_type == "ADD"
+    assert "input" in parser.nodes[0].input
+    assert "output" in parser.nodes[0].output
 
 
-def test_tflite_query_mocked(mock_tflite_model):
-    with patch("builtins.open", mock_open(read_data=b"dummy")):
-        parser = TFLiteParser("dummy.tflite")
-        q = parser.find().op("ADD")
-        assert q.count() == 1
+def test_tflite_query(tflite_model_path):
+    parser = TFLiteParser(tflite_model_path)
+    q = parser.find().op("ADD")
+    assert q.count() == 1
 
 
-def test_tflite_rewriter_staging_mocked(mock_tflite_model):
-    with patch("builtins.open", mock_open(read_data=b"dummy")):
-        parser = TFLiteParser("dummy.tflite")
-        rw = parser.rewriter()
-        node = parser.nodes[0]
-        rw.replace([node], "MUL", node.input, node.output)
-        path = rw.build("out.tflite")
-        assert path == "out.tflite"
+def test_tflite_rewriter_functional(tflite_model_path, tmp_path):
+    parser = TFLiteParser(tflite_model_path)
+    rw = parser.rewriter()
+    node = parser.nodes[0]
+    print(f"\nDEBUG: Replacing node {node.name} (op={node.op_type})")
+
+    # Replacement with a "MyFusion" custom op
+    out_path = os.path.join(tmp_path, "fused.tflite")
+    rw.replace([node], "MyFusion", node.input, node.output)
+    print(f"DEBUG: to_remove set: {rw._to_remove}")
+
+    saved_path = rw.build(out_path)
+    assert os.path.exists(saved_path)
+
+    # Verify the new model has MyFusion
+    new_parser = TFLiteParser(saved_path)
+    print(
+        f"DEBUG: New model nodes: {[n.name for n in new_parser.nodes]} types: {[n.op_type for n in new_parser.nodes]}"
+    )
+    assert len(new_parser.nodes) == 1
+    assert new_parser.nodes[0].op_type == "MyFusion"
 
 
-def test_tflite_pattern_detect_mocked(mock_tflite_model):
-    with patch("builtins.open", mock_open(read_data=b"dummy")):
-        parser = TFLiteParser("dummy.tflite")
-        # Define a pattern that matches our ADD node
-        pat = Pattern.op("ADD")
-        # To match, we must provide a start node or use find_all
-        node = parser.nodes[0]
-        match = parser.pattern_detect(pat, start_node=node)
-        assert match is not None
-        assert match.start.op_type == "ADD"
+def test_tflite_pattern_detect(tflite_model_path):
+    parser = TFLiteParser(tflite_model_path)
+    pat = Pattern.op("ADD")
+    node = parser.nodes[0]
+    match = parser.pattern_detect(pat, start_node=node)
+    assert match is not None
+    assert match.start.op_type == "ADD"

@@ -1,7 +1,7 @@
 [project]
 name = "neuron-toolkit"
 version = "0.2.0"
-description = "A unified ONNX parsing and pattern-matching library."
+description = "A unified ONNX, TFLITE parsing and pattern-matching library."
 readme = "README.md"
 authors = [
     { name = "Sheth Jenil", email = "shethjeniljigneshbhai@gmail.com" }
