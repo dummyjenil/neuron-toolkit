@@ -15,7 +15,7 @@ class NeuronRewriter:
     def __init__(self, backend_rewriter: BaseRewriter) -> None:
         self._impl = backend_rewriter
 
-    def build(self, output_path: str | None = None) -> Any:
+    def build(self, output_path: str | None = None) -> object:
         """Apply edits and return the modified model."""
         return self._impl.build(output_path=output_path)
 

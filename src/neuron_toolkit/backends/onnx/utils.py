@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import onnx
@@ -31,30 +32,27 @@ _ONNX_DTYPE_TO_NP: dict[int, str] = {
     TensorProto.STRING: "object",
 }
 
+_ATTR_EXTRACTORS: dict[int, Callable[[AttributeProto], object]] = {
+    AttributeProto.FLOAT: lambda a: a.f,
+    AttributeProto.INT: lambda a: a.i,
+    AttributeProto.STRING: lambda a: a.s.decode("utf-8"),
+    AttributeProto.TENSOR: lambda a: to_array(a.t),
+    AttributeProto.FLOATS: lambda a: list(a.floats),
+    AttributeProto.INTS: lambda a: list(a.ints),
+    AttributeProto.STRINGS: lambda a: [s.decode("utf-8") for s in a.strings],
+    AttributeProto.TENSORS: lambda a: [to_array(ten) for ten in a.tensors],
+}
+
 
 def _attr_value(attr: AttributeProto) -> object | None:
     """Extract a typed Python value from an ONNX AttributeProto."""
-    t = attr.type
-    if t == AttributeProto.FLOAT:
-        return attr.f
-    if t == AttributeProto.INT:
-        return attr.i
-    if t == AttributeProto.STRING:
-        return attr.s.decode("utf-8")
-    if t == AttributeProto.TENSOR:
-        return to_array(attr.t)
-    if t == AttributeProto.FLOATS:
-        return list(attr.floats)
-    if t == AttributeProto.INTS:
-        return list(attr.ints)
-    if t == AttributeProto.STRINGS:
-        return [s.decode("utf-8") for s in attr.strings]
-    if t == AttributeProto.TENSORS:
-        return [to_array(ten) for ten in attr.tensors]
+    extractor = _ATTR_EXTRACTORS.get(attr.type)
+    if extractor:
+        return extractor(attr)
 
     log.debug(
         "_attr_value: unrecognised attribute type %s for %r",
-        t,
+        attr.type,
         getattr(attr, "name", "?"),
     )
     return None
@@ -72,7 +70,7 @@ def _build_shape_info(inferred_model: onnx.ModelProto) -> ShapeInfo:
     """
     info: ShapeInfo = {}
 
-    def _extract_vi(vi_list):
+    def _extract_vi(vi_list: Sequence[onnx.ValueInfoProto]) -> None:
         for vi in vi_list:
             if not vi.type.HasField("tensor_type"):
                 continue
@@ -82,8 +80,8 @@ def _build_shape_info(inferred_model: onnx.ModelProto) -> ShapeInfo:
             info[vi.name] = (rank, dtype)
 
     # Include inputs, value_info, and outputs
-    _extract_vi(inferred_model.graph.input)
-    _extract_vi(inferred_model.graph.value_info)
-    _extract_vi(inferred_model.graph.output)
+    _extract_vi(list(inferred_model.graph.input))
+    _extract_vi(list(inferred_model.graph.value_info))
+    _extract_vi(list(inferred_model.graph.output))
 
     return info

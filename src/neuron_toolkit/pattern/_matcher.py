@@ -1,14 +1,17 @@
+"""State management and matching logic for PatternDetector."""
+
 from __future__ import annotations
 
 import itertools
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
 import networkx as nx
 import numpy as np
 
+from neuron_toolkit._utils import ShapeInfo
 from neuron_toolkit.pattern.dsl import _ANY_OF, _CONST_PAT, _WILDCARD
 
 if TYPE_CHECKING:
@@ -23,13 +26,15 @@ class MatchContext:
     """State management for a single pattern matching attempt."""
 
     detector: PatternDetector
-    bindings: dict[str, Any] = field(default_factory=dict)
-    trail: list[Any] = field(default_factory=list)
+    bindings: dict[str, object] = field(default_factory=dict)
+    trail: list[object] = field(default_factory=list)
     # Maps id(Pattern) -> id(Node) to enforce referential consistency
     memo: dict[int, int] = field(default_factory=dict)
     visited: set[str] = field(default_factory=set)
 
-    def snapshot(self) -> tuple[dict[str, Any], list[Any], dict[int, int], set[str]]:
+    def snapshot(
+        self,
+    ) -> tuple[dict[str, object], list[object], dict[int, int], set[str]]:
         """Take a snapshot of the current state for backtracking."""
         return (
             dict(self.bindings),
@@ -39,7 +44,8 @@ class MatchContext:
         )
 
     def restore(
-        self, snap: tuple[dict[str, Any], list[Any], dict[int, int], set[str]]
+        self,
+        snap: tuple[dict[str, object], list[object], dict[int, int], set[str]],
     ) -> None:
         """Restore state from a snapshot."""
         self.bindings, self.trail, self.memo, self.visited = snap
@@ -48,33 +54,47 @@ class MatchContext:
 class MatchingMixin:
     """Mixin for matching logic in PatternDetector.
 
-    This implementation uses a recursive depth-first search with backtracking and
-    memoization to handle complex subgraph patterns, including wildcards,
-    alternative paths, and commutative operators.
+    This implementation uses a recursive depth-first search with backtracking to
+    handle complex subgraph patterns, including wildcards, alternative paths,
+    and commutative operators.
     """
 
-    def _get_backend(self) -> Any:
+    _nodes: Sequence[object]
+    _tensor_map: Mapping[str, object]
+    _shape_info: ShapeInfo
+    _nx_graph: nx.DiGraph | None
+    output_to_node: dict[str, object]
+    start: object | None
+    end: object | None
+
+    @property
+    def backend(self) -> object | None:
+        """Return the backend parser."""
+        return self._get_backend()
+
+    def _get_backend(self) -> object | None:
         """Access the underlying backend parser."""
         if hasattr(self, "detector"):
-            return self.detector._backend
+            return cast(object | None, cast(Any, self).detector.backend)
         return getattr(self, "_backend", None)
 
-    def _build_nx_graph(self: PatternDetector) -> nx.DiGraph:
+    def _build_nx_graph(self) -> nx.DiGraph:
         """Lazily build a NetworkX representation of the graph."""
         if self._nx_graph is None:
             g = nx.DiGraph()
             for n in self._nodes:
                 name = getattr(n, "name", f"node_{id(n)}")
                 g.add_node(name, proto=n)
-                for inp in n.input:
-                    parent = self._output_to_node.get(inp)
+                node_inputs = getattr(n, "input", [])
+                for inp in node_inputs:
+                    parent = self.output_to_node.get(inp)
                     if parent:
                         p_name = getattr(parent, "name", f"node_{id(parent)}")
                         g.add_edge(p_name, name)
             self._nx_graph = g
         return self._nx_graph
 
-    def _resolve(self: PatternDetector, node: str | Any | None) -> Any | None:
+    def _resolve(self, node: str | object | None) -> object | None:
         """Resolve a node name or proto to a Node instance."""
         if node is None or not isinstance(node, str):
             return node
@@ -84,7 +104,7 @@ class MatchingMixin:
         msg = f"Node not found in graph: '{node}'"
         raise ValueError(msg)
 
-    def _descendant_nodes(self: PatternDetector) -> list[Any]:
+    def _descendant_nodes(self) -> list[object]:
         """Collect all descendants of self.start (inclusive)."""
         if self.start is None:
             msg = "start_node must be set to collect descendants"
@@ -94,9 +114,9 @@ class MatchingMixin:
         desc_names = nx.descendants(g, name) | {name}
         return [g.nodes[dn]["proto"] for dn in desc_names]
 
-    def _match_recursive(
-        self: PatternDetector,
-        node: Any,
+    def _match_recursive(  # noqa: PLR0911
+        self,
+        node: object,
         pattern: Pattern,
         ctx: MatchContext,
     ) -> bool:
@@ -119,7 +139,8 @@ class MatchingMixin:
             return self._match_wildcard(node, pattern, ctx)
 
         # 4. Op Type & Constraint Checks
-        if pattern.op_type is not None and node.op_type != pattern.op_type:
+        node_op_type = getattr(node, "op_type", None)
+        if pattern.op_type is not None and node_op_type != pattern.op_type:
             return False
         if not self._check_attrs(node, pattern) or not self._check_shape_dtype(
             node, pattern
@@ -131,7 +152,7 @@ class MatchingMixin:
             return self._finalize_match(node, pattern, ctx)
 
         parents = self._get_parent_nodes(node, ctx)
-        if node.op_type in {"Add", "Mul"}:
+        if node_op_type in {"Add", "Mul"}:
             ok = self._match_commutative(node, parents, pattern, ctx)
         else:
             ok = self._match_ordered(node, parents, pattern, ctx)
@@ -141,26 +162,26 @@ class MatchingMixin:
         return False
 
     def _match_any_of(
-        self: PatternDetector, node: Any, pattern: Pattern, ctx: MatchContext
+        self, node: object, pattern: Pattern, ctx: MatchContext
     ) -> bool:
         """Match if any of the alternatives match."""
-        for alt in pattern._alternatives:
+        for alt in pattern.alternatives:
             snap = ctx.snapshot()
             if self._match_recursive(node, alt, ctx):
-                if pattern._capture:
-                    if pattern._capture in ctx.bindings and id(
-                        ctx.bindings[pattern._capture]
+                if pattern.capture_name:
+                    if pattern.capture_name in ctx.bindings and id(
+                        ctx.bindings[pattern.capture_name]
                     ) != id(node):
                         ctx.restore(snap)
                         continue
-                    ctx.bindings[pattern._capture] = node
+                    ctx.bindings[pattern.capture_name] = node
                 ctx.memo[id(pattern)] = id(node)
                 return True
             ctx.restore(snap)
         return False
 
     def _match_const_pattern(
-        self: PatternDetector, node: Any, pattern: Pattern, ctx: MatchContext
+        self, node: object, pattern: Pattern, ctx: MatchContext
     ) -> bool:
         """Match against a constant value."""
         if self._match_init_const_node(node, pattern.value):
@@ -169,7 +190,7 @@ class MatchingMixin:
         return False
 
     def _match_wildcard(
-        self: PatternDetector, node: Any, pattern: Pattern, ctx: MatchContext
+        self, node: object, pattern: Pattern, ctx: MatchContext
     ) -> bool:
         """Match any node, subject to shape/dtype constraints."""
         if not self._check_shape_dtype(node, pattern):
@@ -177,9 +198,9 @@ class MatchingMixin:
         return self._finalize_match(node, pattern, ctx)
 
     def _match_ordered(
-        self: PatternDetector,
-        node: Any,
-        parents: list[Any | None],
+        self,
+        node: object,
+        parents: list[object | None],
         pattern: Pattern,
         ctx: MatchContext,
     ) -> bool:
@@ -205,9 +226,9 @@ class MatchingMixin:
         return True
 
     def _match_commutative(
-        self: PatternDetector,
-        node: Any,
-        parents: list[Any | None],
+        self,
+        node: object,
+        parents: list[object | None],
         pattern: Pattern,
         ctx: MatchContext,
     ) -> bool:
@@ -229,7 +250,7 @@ class MatchingMixin:
             return False
 
         # Limit permutations to avoid explosion
-        if len(actual_parents) > 8:
+        if len(actual_parents) > 8:  # noqa: PLR2004
             log.warning("Too many parents for commutative match, limiting search")
             actual_parents = actual_parents[:8]
 
@@ -239,34 +260,37 @@ class MatchingMixin:
             ctx.visited.add(name)
             if all(
                 self._match_recursive(p, pat, ctx)
-                for p, pat in zip(perm, non_const_pats)
+                for p, pat in zip(perm, non_const_pats, strict=False)
             ):
                 return True
             ctx.restore(snap)
         return False
 
     def _finalize_match(
-        self: PatternDetector, node: Any, pattern: Pattern, ctx: MatchContext
+        self, node: object, pattern: Pattern, ctx: MatchContext
     ) -> bool:
         """Record the successful match and update bindings/trail."""
         if not any(n is node for n in ctx.trail):
             ctx.trail.append(node)
-        if pattern._capture:
-            ctx.bindings[pattern._capture] = node
+        if pattern.capture_name:
+            ctx.bindings[pattern.capture_name] = node
         ctx.memo[id(pattern)] = id(node)
         return True
 
     def _get_parent_nodes(
-        self: PatternDetector, node: Any, ctx: MatchContext
-    ) -> list[Any | None]:
+        self, node: object, ctx: MatchContext
+    ) -> list[object | None]:
         """Get the parent nodes for a given node, filtering out visited ones."""
-        parents: list[Any | None] = []
-        for inp in node.input:
+        parents: list[object | None] = []
+        node_inputs = getattr(node, "input", [])
+        for inp in node_inputs:
             if not inp or inp in self._tensor_map:
                 parents.append(None)
                 continue
-            parent = self._output_to_node.get(inp)
-            p_name = getattr(parent, "name", f"node_{id(parent)}") if parent else None
+            parent = self.output_to_node.get(inp)
+            p_name = (
+                getattr(parent, "name", f"node_{id(parent)}") if parent else None
+            )
             if parent and p_name not in ctx.visited:
                 parents.append(parent)
             else:
@@ -274,18 +298,27 @@ class MatchingMixin:
         return parents
 
     def _match_init_const_node(
-        self: PatternDetector, node: Any, value: object, used: set[str] | None = None
+        self,
+        node: object,
+        value: object,
+        used: set[str] | None = None,
     ) -> bool:
-        """Match if any input to the node is an initializer/constant with the given value."""
+        """Match if any input to the node is an initializer/constant."""
         try:
-            for i in range(len(node.input)):
+            node_inputs = getattr(node, "input", [])
+            for i in range(len(node_inputs)):
                 if self._match_init_const_at_pos(node, i, value, used or set()):
                     return True
 
             # Backend-specific constant node check
             backend = self._get_backend()
-            if backend and backend.is_constant_node(node):
-                val = backend.get_constant_value(node)
+            if (
+                backend
+                and hasattr(backend, "is_constant_node")
+                and hasattr(backend, "get_constant_value")
+                and cast(Any, backend).is_constant_node(node)
+            ):
+                val = cast(Any, backend).get_constant_value(node)
                 if val is not None:
                     return bool(np.allclose(val, cast(Any, value), atol=1e-3))
         except (ValueError, TypeError, AttributeError):
@@ -293,53 +326,73 @@ class MatchingMixin:
         return False
 
     def _match_init_const_at_pos(
-        self: PatternDetector, node: Any, pos: int, value: object, used: set[str]
+        self,
+        node: object,
+        pos: int,
+        value: object,
+        used: set[str],
     ) -> bool:
         """Match a constant/initializer at a specific input position."""
-        if pos >= len(node.input):
+        node_inputs = getattr(node, "input", [])
+        if pos >= len(node_inputs):
             return False
-        inp = node.input[pos]
+        inp = node_inputs[pos]
         if not inp or inp in used:
             return False
 
         try:
             # Case 1: Initializer/Tensor map
-            if inp in self._tensor_map:
-                if np.allclose(self._tensor_map[inp], cast(Any, value), atol=1e-3):
-                    used.add(inp)
-                    return True
+            if inp in self._tensor_map and np.allclose(
+                cast(Any, self._tensor_map[inp]), cast(Any, value), atol=1e-3
+            ):
+                used.add(inp)
+                return True
             # Case 2: Constant node output
-            parent = self._output_to_node.get(inp)
+            parent = self.output_to_node.get(inp)
             backend = self._get_backend()
-            if parent and backend and backend.is_constant_node(parent):
-                val = backend.get_constant_value(parent)
-                print(f"DEBUG: Found constant parent {parent.name} with value {val}")
-                if val is not None and np.allclose(val, cast(Any, value), atol=1e-3):
-                    used.add(inp)
-                    return True
+            if (
+                parent
+                and backend
+                and hasattr(backend, "is_constant_node")
+                and hasattr(backend, "get_constant_value")
+            ):
+                if cast(Any, backend).is_constant_node(parent):
+                    val = cast(Any, backend).get_constant_value(parent)
+                    print(
+                        f"DEBUG: Found constant parent {getattr(parent, 'name', '')} "
+                        f"with value {val}"
+                    )
+                    if val is not None and np.allclose(
+                        val, cast(Any, value), atol=1e-3
+                    ):
+                        used.add(inp)
+                        return True
             else:
                 print(
-                    f"DEBUG: No constant parent found for input {inp} (parent={parent}, backend={backend})"
+                    f"DEBUG: No constant parent found for input {inp} "
+                    f"(parent={parent}, backend={backend})"
                 )
         except (ValueError, TypeError, AttributeError):
             pass
         return False
 
-    def _check_attrs(self: PatternDetector, node: Any, pattern: Pattern) -> bool:
+    def _check_attrs(
+        self, node: object, pattern: Pattern
+    ) -> bool:
         """Check if node attributes satisfy pattern constraints."""
-        if not pattern._constraints:
+        if not pattern.constraints:
             return True
 
         backend = self._get_backend()
-        if backend:
-            attrs = backend.get_node_attrs(node)
+        if backend and hasattr(backend, "get_node_attrs"):
+            attrs = cast(Any, backend).get_node_attrs(node)
         else:
             # Fallback to generic extractor if no backend (e.g. shim)
-            from neuron_toolkit.query.core import _get_node_attrs
+            from neuron_toolkit.query.core import _get_node_attrs  # noqa: PLC0415
 
             attrs = _get_node_attrs(node)
 
-        for attr_name, expected in pattern._constraints.items():
+        for attr_name, expected in pattern.constraints.items():
             if attr_name not in attrs:
                 return False
             actual = attrs[attr_name]
@@ -347,21 +400,22 @@ class MatchingMixin:
                 if not cast("Callable[[Any], bool]", expected)(actual):
                     return False
             elif isinstance(actual, np.ndarray) or isinstance(expected, np.ndarray):
-                if not np.array_equal(actual, cast(Any, expected)):
+                if not np.array_equal(cast(Any, actual), cast(Any, expected)):
                     return False
             elif actual != expected:
                 return False
         return True
 
-    def _check_shape_dtype(self: PatternDetector, node: Any, pattern: Pattern) -> bool:
-        """Check if node output shape and dtype satisfy pattern constraints."""
-        if pattern._rank is None and pattern._dtype is None:
+    def _check_shape_dtype(
+        self, node: object, pattern: Pattern
+    ) -> bool:
+        """Check if node output shape and dtype satisfy constraints."""
+        if pattern.rank is None and pattern.dtype_str is None:
             return True
-        if not node.output:
+        node_outputs = getattr(node, "output", [])
+        if not node_outputs:
             return False
-        rank, dtype = self._shape_info.get(node.output[0], (None, None))
-        if pattern._rank is not None and rank != pattern._rank:
+        rank, dtype = self._shape_info.get(node_outputs[0], (None, None))
+        if pattern.rank is not None and rank != pattern.rank:
             return False
-        if pattern._dtype is not None and dtype != pattern._dtype:
-            return False
-        return True
+        return pattern.dtype_str is None or dtype == pattern.dtype_str

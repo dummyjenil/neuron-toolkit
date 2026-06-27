@@ -10,7 +10,6 @@ from neuron_toolkit._utils import ShapeInfo
 log = logging.getLogger("neuron_toolkit.backends.tflite")
 
 # Map TFLite TensorType (int) -> numpy dtype string
-# Based on tflite.TensorType
 _TFLITE_DTYPE_TO_NP: dict[int, str] = {
     0: "float32",
     1: "float16",
@@ -29,23 +28,25 @@ _TFLITE_DTYPE_TO_NP: dict[int, str] = {
 }
 
 
-def _get_tflite_attr(op: Any, op_type: str) -> dict[str, Any]:
+# TODO: Extract attributes for additional common operators
+# (e.g. FULLY_CONNECTED, CONCATENATION, ADD, SUB, etc.)
+def _get_tflite_attr(  # noqa: PLR0912, PLR0915
+    op: Any, op_type: str
+) -> dict[str, object]:
     """Try to extract attributes from a TFLite operator.
 
-    This is challenging because TFLite uses specific flatbuffer tables for each op's options.
+    This is challenging because TFLite uses specific flatbuffer tables for
+    each op's options.
     """
-
     options = op.BuiltinOptions()
     if options is None:
         return {}
 
-    attrs = {}
+    attrs: dict[str, Any] = {}
 
-    # This is a very simplified version. Real implementation would need to handle
-    # many more op types and their corresponding Options classes.
     try:
         if op_type == "CONV_2D":
-            from tflite.Conv2DOptions import Conv2DOptions
+            from tflite.Conv2DOptions import Conv2DOptions  # noqa: PLC0415
 
             opt = Conv2DOptions()
             opt.Init(options.Bytes, options.Pos)
@@ -55,12 +56,8 @@ def _get_tflite_attr(op: Any, op_type: str) -> dict[str, Any]:
             attrs["fused_activation_function"] = opt.FusedActivationFunction()
             attrs["dilation_h_factor"] = opt.DilationHFactor()
             attrs["dilation_w_factor"] = opt.DilationWFactor()
-        elif (
-            op_type == "POOL_2D"
-            or op_type == "AVERAGE_POOL_2D"
-            or op_type == "MAX_POOL_2D"
-        ):
-            from tflite.Pool2DOptions import Pool2DOptions
+        elif op_type in {"POOL_2D", "AVERAGE_POOL_2D", "MAX_POOL_2D"}:
+            from tflite.Pool2DOptions import Pool2DOptions  # noqa: PLC0415
 
             opt = Pool2DOptions()
             opt.Init(options.Bytes, options.Pos)
@@ -71,26 +68,74 @@ def _get_tflite_attr(op: Any, op_type: str) -> dict[str, Any]:
             attrs["filter_width"] = opt.FilterWidth()
             attrs["fused_activation_function"] = opt.FusedActivationFunction()
         elif op_type == "RESHAPE":
-            from tflite.ReshapeOptions import ReshapeOptions
+            from tflite.ReshapeOptions import ReshapeOptions  # noqa: PLC0415
 
             opt = ReshapeOptions()
             opt.Init(options.Bytes, options.Pos)
-            # Reshape options might have 'new_shape' but it's often in a separate tensor
-            pass
         elif op_type == "SOFTMAX":
-            from tflite.SoftmaxOptions import SoftmaxOptions
+            from tflite.SoftmaxOptions import SoftmaxOptions  # noqa: PLC0415
 
             opt = SoftmaxOptions()
             opt.Init(options.Bytes, options.Pos)
             attrs["beta"] = opt.Beta()
-        # Add more as needed...
-    except Exception as exc:
+        elif op_type == "FULLY_CONNECTED":
+            from tflite.FullyConnectedOptions import (  # noqa: PLC0415
+                FullyConnectedOptions,
+            )
+
+            opt = FullyConnectedOptions()
+            opt.Init(options.Bytes, options.Pos)
+            attrs["fused_activation_function"] = opt.FusedActivationFunction()
+            attrs["keep_num_dims"] = opt.KeepNumDims()
+        elif op_type == "CONCATENATION":
+            from tflite.ConcatenationOptions import (  # noqa: PLC0415
+                ConcatenationOptions,
+            )
+
+            opt = ConcatenationOptions()
+            opt.Init(options.Bytes, options.Pos)
+            attrs["axis"] = opt.Axis()
+            attrs["fused_activation_function"] = opt.FusedActivationFunction()
+        elif op_type == "ADD":
+            from tflite.AddOptions import AddOptions  # noqa: PLC0415
+
+            opt = AddOptions()
+            opt.Init(options.Bytes, options.Pos)
+            attrs["fused_activation_function"] = opt.FusedActivationFunction()
+        elif op_type == "SUB":
+            from tflite.SubOptions import SubOptions  # noqa: PLC0415
+
+            opt = SubOptions()
+            opt.Init(options.Bytes, options.Pos)
+            attrs["fused_activation_function"] = opt.FusedActivationFunction()
+        elif op_type == "MUL":
+            from tflite.MulOptions import MulOptions  # noqa: PLC0415
+
+            opt = MulOptions()
+            opt.Init(options.Bytes, options.Pos)
+            attrs["fused_activation_function"] = opt.FusedActivationFunction()
+        elif op_type == "DIV":
+            from tflite.DivOptions import DivOptions  # noqa: PLC0415
+
+            opt = DivOptions()
+            opt.Init(options.Bytes, options.Pos)
+            attrs["fused_activation_function"] = opt.FusedActivationFunction()
+        elif op_type == "SQUEEZE":
+            from tflite.SqueezeOptions import SqueezeOptions  # noqa: PLC0415
+
+            opt = SqueezeOptions()
+            opt.Init(options.Bytes, options.Pos)
+            dims = [
+                opt.SqueezeDims(j) for j in range(opt.SqueezeDimsLength())
+            ]
+            attrs["squeeze_dims"] = dims
+    except Exception as exc:  # noqa: BLE001
         log.debug("Failed to extract attributes for %s: %s", op_type, exc)
 
     return attrs
 
 
-def _build_shape_info(model: Any, subgraph: Any) -> ShapeInfo:
+def _build_shape_info(_model: object, subgraph: Any) -> ShapeInfo:
     """Build a map from every tensor name to (rank, dtype)."""
     info: ShapeInfo = {}
 

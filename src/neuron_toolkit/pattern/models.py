@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -15,15 +15,15 @@ class MatchResult(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    start: Any
-    end: Any
-    nodes: list[Any] = Field(default_factory=list)
-    bindings: dict[str, Any] = Field(default_factory=dict)
+    start: object
+    end: object
+    nodes: list[object] = Field(default_factory=list)
+    bindings: dict[str, object] = Field(default_factory=dict)
     tensor_map: TensorMap = Field(default_factory=dict, exclude=True, repr=False)
 
     def as_query(self) -> NeuronQuery:
         """Return the matched subgraph as an NeuronQuery."""
-        from neuron_toolkit.query import NeuronQuery
+        from neuron_toolkit.query import NeuronQuery  # noqa: PLC0415
 
         return NeuronQuery(list(self.nodes), self.tensor_map, list(self.nodes))
 

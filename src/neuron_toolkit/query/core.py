@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterator, Sequence
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import networkx as nx
 import numpy as np
@@ -21,26 +21,23 @@ log = logging.getLogger("neuron_toolkit.query")
 MAX_REPR_NODES = 15
 
 
-def _get_node_attrs(node: Any, backend: BaseParser | None = None) -> dict[str, Any]:
+def _get_node_attrs(
+    node: object, backend: BaseParser | None = None
+) -> dict[str, object]:
     """Backend-agnostic attribute extraction."""
     if backend and hasattr(backend, "get_node_attrs"):
         return backend.get_node_attrs(node)
 
     # Fallback for TFLite (TFLiteNode usually has .attrs)
-    if hasattr(node, "attrs") and not hasattr(node, "attribute"):
-        return node.attrs
+    attrs = getattr(node, "attrs", None)
+    if isinstance(attrs, dict) and not hasattr(node, "attribute"):
+        return attrs
 
     # Fallback for ONNX (NodeProto has .attribute)
     if hasattr(node, "attribute"):
-        from neuron_toolkit.backends.onnx.utils import _node_attrs
+        from neuron_toolkit.backends.onnx.utils import _node_attrs  # noqa: PLC0415
 
-        return _node_attrs(node)
-
-    # Generic TFLite Operator check (if using raw flatbuffer objects)
-    if hasattr(node, "BuiltinOptions"):
-        # This is a raw TFLite Operator; attribute extraction is complex
-        # and usually handled by the TFLiteParser.
-        return {}
+        return _node_attrs(cast(Any, node))
 
     return {}
 
@@ -59,13 +56,13 @@ class NeuronQuery:
 
     def __init__(
         self,
-        nodes: Sequence[Any],
+        nodes: Sequence[object],
         tensor_map: TensorMap,
-        all_nodes: Sequence[Any],
+        all_nodes: Sequence[object],
         graph_inputs: set[str] | None = None,
         graph_outputs: set[str] | None = None,
         shape_info: ShapeInfo | None = None,
-        backend: Any | None = None,
+        backend: object | None = None,
     ) -> None:
         """Initialize a NeuronQuery."""
         self.nodes = list(nodes)
@@ -75,20 +72,27 @@ class NeuronQuery:
         self.graph_outputs = graph_outputs or set()
         self.shape_info = shape_info or {}
         self._backend = backend
-        self.shape_info = shape_info or {}
 
     @cached_property
-    def _output_map(self) -> dict[str, Any]:
-        return {out: n for n in self.all_nodes for out in n.output}
+    def output_map(self) -> dict[str, object]:
+        """Return a mapping from output tensor names to their producing nodes."""
+        return {
+            out: n
+            for n in self.all_nodes
+            for out in getattr(n, "output", [])
+        }
 
     @cached_property
     def _nx_graph(self) -> nx.DiGraph:
         g = nx.DiGraph()
         for n in self.all_nodes:
-            g.add_node(n.name, proto=n)
-            for inp in n.input:
-                if parent := self._output_map.get(inp):
-                    g.add_edge(parent.name, n.name, tensor=inp)
+            name = getattr(n, "name", "")
+            g.add_node(name, proto=n)
+            node_inputs = getattr(n, "input", [])
+            for inp in node_inputs:
+                if parent := self.output_map.get(inp):
+                    parent_name = getattr(parent, "name", "")
+                    g.add_edge(parent_name, name, tensor=inp)
         return g
 
     @cached_property
@@ -100,10 +104,11 @@ class NeuronQuery:
         except nx.NetworkXCyclicError:
             # Fallback to original order if cycles exist
             return {
-                getattr(n, "name", f"node_{i}"): i for i, n in enumerate(self.all_nodes)
+                getattr(n, "name", f"node_{i}"): i
+                for i, n in enumerate(self.all_nodes)
             }
 
-    def _clone(self, nodes: Sequence[Any]) -> NeuronQuery:
+    def _clone(self, nodes: Sequence[object]) -> NeuronQuery:
         new = self.__class__(
             nodes,
             self.tensor_map,
@@ -114,17 +119,20 @@ class NeuronQuery:
             backend=self._backend,
         )
         # Share expensive graph caches
-        for attr in ("_output_map", "_nx_graph", "_node_to_idx"):
+        for attr in ("output_map", "_nx_graph", "_node_to_idx"):
             if attr in self.__dict__:
                 new.__dict__[attr] = self.__dict__[attr]
         return new
 
-    def _params(self, node: Any) -> TensorMap:
-        return {i: self.tensor_map[i] for i in node.input if i in self.tensor_map}
+    def _params(self, node: object) -> TensorMap:
+        node_inputs = getattr(node, "input", [])
+        return {
+            i: self.tensor_map[i] for i in node_inputs if i in self.tensor_map
+        }
 
     # --- Filters ---
 
-    def filter(self, predicate: Callable[[Any], bool]) -> NeuronQuery:
+    def filter(self, predicate: Callable[[object], bool]) -> NeuronQuery:
         """Filter nodes using a custom predicate."""
         return self._clone([n for n in self.nodes if predicate(n)])
 
@@ -139,11 +147,12 @@ class NeuronQuery:
     def rank(self, rank: int) -> NeuronQuery:
         """Filter nodes by their output tensor rank."""
 
-        def _match(n: Any) -> bool:
-            if not n.output:
+        def _match(n: object) -> bool:
+            outputs = getattr(n, "output", [])
+            if not outputs:
                 return False
             # Check shape_info (which now includes graph inputs)
-            r, _ = self.shape_info.get(n.output[0], (None, None))
+            r, _ = self.shape_info.get(outputs[0], (None, None))
             return r == rank
 
         return self.filter(_match)
@@ -151,54 +160,65 @@ class NeuronQuery:
     def dtype(self, dtype: str) -> NeuronQuery:
         """Filter nodes by their output tensor data type."""
 
-        def _match(n: Any) -> bool:
-            if not n.output:
+        def _match(n: object) -> bool:
+            outputs = getattr(n, "output", [])
+            if not outputs:
                 return False
-            _, d = self.shape_info.get(n.output[0], (None, None))
+            _, d = self.shape_info.get(outputs[0], (None, None))
             return d == dtype
 
         return self.filter(_match)
 
-    def attr(self, name: str, value: Any = None) -> NeuronQuery:
+    def attr(self, name: str, value: object = None) -> NeuronQuery:
         """Alias for find_by_attribute."""
         return self.find_by_attribute(name, value)
 
     def find_by_op_type(self, op_type: str) -> NeuronQuery:
         """Filter nodes by their op_type."""
-        return self.filter(lambda n: n.op_type == op_type)
+        return self.filter(lambda n: getattr(n, "op_type", None) == op_type)
 
     def find_by_name(self, name: str, *, exact: bool = False) -> NeuronQuery:
         """Filter nodes by name (substring match by default)."""
         low = name.lower()
-        return self.filter(lambda n: n.name == name if exact else low in n.name.lower())
+        return self.filter(
+            lambda n: getattr(n, "name", "") == name
+            if exact
+            else low in getattr(n, "name", "").lower()
+        )
 
     def find_by_tensor(self, name: str) -> NeuronQuery:
         """Filter nodes that consume or produce a specific tensor."""
-        return self.filter(lambda n: name in n.input or name in n.output)
+        return self.filter(
+            lambda n: name in getattr(n, "input", [])
+            or name in getattr(n, "output", [])
+        )
 
-    def find_by_param_name(self, name: str, *, exact: bool = False) -> NeuronQuery:
+    def find_by_param_name(
+        self, name: str, *, exact: bool = False
+    ) -> NeuronQuery:
         """Filter nodes that have a weight tensor with a specific name."""
         low = name.lower()
         return self.filter(
             lambda n: any(
-                p == name if exact else low in p.lower() for p in self._params(n)
+                p == name if exact else low in p.lower()
+                for p in self._params(n)
             )
         )
 
-    def find_by_attribute(self, name: str, value: Any = None) -> NeuronQuery:
+    def find_by_attribute(self, name: str, value: object = None) -> NeuronQuery:
         """Find nodes by attribute name and optionally value."""
 
-        def _match(n: Any) -> bool:
-            attrs = _get_node_attrs(n, self._backend)
+        def _match(n: object) -> bool:
+            attrs = _get_node_attrs(n, cast(Any, self._backend))
             if name not in attrs:
                 return False
             if value is None:
                 return True
             v = attrs[name]
             if callable(value):
-                return value(v)
+                return cast(Callable[[Any], bool], value)(v)
             if isinstance(v, np.ndarray) or isinstance(value, np.ndarray):
-                return np.array_equal(v, value)
+                return np.array_equal(cast(Any, v), cast(Any, value))
             return v == value
 
         return self.filter(_match)
@@ -211,13 +231,19 @@ class NeuronQuery:
             return self._clone([])
 
         if method == "successors":
-            targets = {s for n in self.nodes for s in g.successors(n.name)}
+            targets = {
+                s for n in self.nodes for s in g.successors(getattr(n, "name", ""))
+            }
         elif method == "predecessors":
-            targets = {p for n in self.nodes for p in g.predecessors(n.name)}
+            targets = {
+                p
+                for n in self.nodes
+                for p in g.predecessors(getattr(n, "name", ""))
+            }
         else:
             # Optimized multi-source traversal
             rev = g.reverse(copy=False) if method == "ancestors" else g
-            sources = [n.name for n in self.nodes]
+            sources = [getattr(n, "name", "") for n in self.nodes]
             # Use multi-source BFS
             visited = set()
             queue = [(s, 0) for s in sources]
@@ -226,9 +252,11 @@ class NeuronQuery:
                 if u not in visited:
                     visited.add(u)
                     if d < max_depth:
-                        for v in rev.successors(u):
-                            if v not in visited:
-                                queue.append((v, d + 1))
+                        queue.extend(
+                            (v, d + 1)
+                            for v in rev.successors(u)
+                            if v not in visited
+                        )
             targets = visited - set(sources)
 
         return self._clone([g.nodes[name]["proto"] for name in targets])
@@ -263,7 +291,11 @@ class NeuronQuery:
     def entry_nodes(self) -> NeuronQuery:
         """Return nodes that consume graph inputs."""
         return self._clone(
-            [n for n in self.all_nodes if any(i in self.graph_inputs for i in n.input)]
+            [
+                n
+                for n in self.all_nodes
+                if any(i in self.graph_inputs for i in getattr(n, "input", []))
+            ]
         )
 
     @property
@@ -273,7 +305,7 @@ class NeuronQuery:
             [
                 n
                 for n in self.all_nodes
-                if any(o in self.graph_outputs for o in n.output)
+                if any(o in self.graph_outputs for o in getattr(n, "output", []))
             ]
         )
 
@@ -297,22 +329,23 @@ class NeuronQuery:
 
     def matches(self, pattern: Pattern) -> NeuronQuery:
         """Return nodes that are the start of a match for *pattern*."""
-        from neuron_toolkit.pattern import PatternDetector
+        from neuron_toolkit.pattern import PatternDetector  # noqa: PLC0415
 
         shim = _GraphShim(self.all_nodes, self.tensor_map, self.shape_info)
         matched = []
         for node in self.nodes:
             det = PatternDetector(shim, start_node=node)
-            det._output_to_node = self._output_map
+            det.output_to_node = self.output_map
             if det.match(pattern) is not None:
                 matched.append(node)
         return self._clone(matched)
 
     def follow(self, pattern: Pattern) -> NeuronQuery:
         """Follow a pattern forward from the current nodes.
+
         Returns the root nodes of matches that incorporate the current nodes.
         """
-        from neuron_toolkit.pattern import PatternDetector
+        from neuron_toolkit.pattern import PatternDetector  # noqa: PLC0415
 
         shim = _GraphShim(self.all_nodes, self.tensor_map, self.shape_info)
         results = []
@@ -320,32 +353,33 @@ class NeuronQuery:
 
         # We search for all matches in the graph
         det = PatternDetector(shim)
-        det._output_to_node = self._output_map
+        det.output_to_node = self.output_map
         all_matches = det.find_all(pattern)
 
-        for m in all_matches:
-            # If any of our current nodes are part of this match, we include the match root (start)
-            if any(id(n) in current_ids for n in m.nodes):
-                results.append(m.start)
+        results = [
+            m.start
+            for m in all_matches
+            if any(id(n) in current_ids for n in m.nodes)
+        ]
 
         return self._clone(results)
 
     def match_results(self, pattern: Pattern) -> list[MatchResult]:
         """Return all MatchResult objects for matches starting at these nodes."""
-        from neuron_toolkit.pattern import PatternDetector
+        from neuron_toolkit.pattern import PatternDetector  # noqa: PLC0415
 
         shim = _GraphShim(self.all_nodes, self.tensor_map, self.shape_info)
         results = []
         for node in self.nodes:
             det = PatternDetector(shim, start_node=node)
-            det._output_to_node = self._output_map
+            det.output_to_node = self.output_map
             if r := det.match(pattern):
                 r.tensor_map = self.tensor_map
                 results.append(r)
         return results
 
     def select(self, pattern: Pattern) -> list[MatchResult]:
-        """Alias for match_results — find all pattern matches starting from these nodes."""
+        """Alias for match_results — find all pattern matches."""
         return self.match_results(pattern)
 
     def where(self, pattern: Pattern) -> NeuronQuery:
@@ -357,27 +391,26 @@ class NeuronQuery:
         pattern: Pattern,
         new_op: str,
         name: str | None = None,
-        **attrs: Any,
+        **attrs: object,
     ) -> NeuronRewriter:
-        """Replace matches of *pattern* starting at these nodes with a new operator."""
+        """Replace matches of *pattern* with a new operator."""
         if not self._backend:
             msg = "Query has no backend; cannot perform rewrite."
             raise RuntimeError(msg)
 
         # Get the underlying backend rewriter
-        impl = self._backend.rewriter()
+        impl = cast(Any, self._backend).rewriter()
         rewriter = NeuronRewriter(impl)
 
         for r in self.select(pattern):
-            rewriter.replace_from_result(r, new_op, name=name, **attrs)
+            cast(Any, rewriter).replace_from_result(
+                r, new_op, name=name, **attrs
+            )
         return rewriter
 
     def to_pattern(self) -> Pattern:
-        """Convert the first node of this query into a reusable Pattern.
-
-        If multiple nodes are present, only the first one is used.
-        """
-        from neuron_toolkit.pattern import Pattern
+        """Convert the first node of this query into a reusable Pattern."""
+        from neuron_toolkit.pattern import Pattern  # noqa: PLC0415
 
         if not self.nodes:
             msg = "Cannot convert empty query to pattern"
@@ -385,7 +418,7 @@ class NeuronQuery:
 
         node = self.nodes[0]
         # Basic conversion: op_type + attributes
-        p = Pattern.op(node.op_type)
+        p = Pattern.op(getattr(node, "op_type", ""))
         attrs = _get_node_attrs(node)
         if attrs:
             p = p.where(**attrs)
@@ -397,7 +430,8 @@ class NeuronQuery:
         """Return nodes in global topological order."""
         idx_map = self._node_to_idx
         sorted_nodes = sorted(
-            self.nodes, key=lambda n: idx_map.get(getattr(n, "name", ""), 999999)
+            self.nodes,
+            key=lambda n: idx_map.get(getattr(n, "name", ""), 999999),
         )
         return self._clone(sorted_nodes)
 
@@ -412,7 +446,9 @@ class NeuronQuery:
             last_idx = curr_idx
         return True
 
-    def apply(self, fn: Callable[[Any, TensorMap], Any]) -> NeuronQuery:
+    def apply(
+        self, fn: Callable[[object, TensorMap], object]
+    ) -> NeuronQuery:
         """Apply *fn* to each node and its parameters."""
         for node in self.nodes:
             fn(node, self._params(node))
@@ -450,8 +486,8 @@ class NeuronQuery:
     # --- Accessors ---
 
     @property
-    def single_node(self) -> Any:
-        """Return the single node in this query. Raises ValueError if count != 1."""
+    def single_node(self) -> object:
+        """Return the single node in this query."""
         if len(self.nodes) != 1:
             msg = f"Expected 1 node, got {len(self.nodes)}"
             raise ValueError(msg)
@@ -466,22 +502,27 @@ class NeuronQuery:
             raise ValueError(msg)
         return next(iter(p.values()))
 
-    def first(self) -> Any | None:
+    def first(self) -> object | None:
+        """Return the first node or None."""
         return self.nodes[0] if self.nodes else None
 
-    def last(self) -> Any | None:
+    def last(self) -> object | None:
+        """Return the last node or None."""
         return self.nodes[-1] if self.nodes else None
 
     def count(self) -> int:
+        """Return the number of nodes."""
         return len(self.nodes)
 
     def is_empty(self) -> bool:
+        """Return True if empty."""
         return not self.nodes
 
     def op_types(self) -> list[str]:
-        return list(dict.fromkeys(n.op_type for n in self.nodes))
+        """Return a list of unique op types in this query."""
+        return list(dict.fromkeys(getattr(n, "op_type", "") for n in self.nodes))
 
-    def __iter__(self) -> Iterator[Any]:
+    def __iter__(self) -> Iterator[object]:
         return iter(self.nodes)
 
     def __len__(self) -> int:
@@ -501,9 +542,13 @@ class NeuronQuery:
         lines = [f"NeuronQuery: {len(self.nodes)} nodes"]
         for i, n in enumerate(self.nodes[:MAX_REPR_NODES]):
             params = self._params(n)
-            p = ", ".join(f"{k}:{list(v.shape)}" for k, v in params.items()) or "-"
+            p = (
+                ", ".join(f"{k}:{list(v.shape)}" for k, v in params.items())
+                or "-"
+            )
             name = getattr(n, "name", "<unnamed>")
-            lines.append(f"  [{i:3}] {n.op_type:16} {name} (params: {p})")
+            op_type = getattr(n, "op_type", "<unknown>")
+            lines.append(f"  [{i:3}] {op_type:16} {name} (params: {p})")
         if len(self.nodes) > MAX_REPR_NODES:
             lines.append(f"  ... (+{len(self.nodes) - MAX_REPR_NODES} more)")
         return "\n".join(lines)

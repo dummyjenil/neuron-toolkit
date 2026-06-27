@@ -138,11 +138,12 @@ def test_tflite_rewriter_functional(tflite_model_path, tmp_path):
     rw.replace([node], "MyFusion", node.input, node.output)
     print(f"DEBUG: to_remove set: {rw._to_remove}")
 
-    saved_path = rw.build(out_path)
-    assert os.path.exists(saved_path)
+    saved_bytes = rw.build(out_path)
+    assert os.path.exists(out_path)
+    assert isinstance(saved_bytes, bytes)
 
     # Verify the new model has MyFusion
-    new_parser = TFLiteParser(saved_path)
+    new_parser = TFLiteParser(out_path)
     print(
         f"DEBUG: New model nodes: {[n.name for n in new_parser.nodes]} types: {[n.op_type for n in new_parser.nodes]}"
     )
@@ -157,3 +158,32 @@ def test_tflite_pattern_detect(tflite_model_path):
     match = parser.pattern_detect(pat, start_node=node)
     assert match is not None
     assert match.start.op_type == "ADD"
+
+
+def test_tflite_parser_bytes_and_object(tflite_model_path):
+    # Test loading from bytes
+    from pathlib import Path
+    buf = Path(tflite_model_path).read_bytes()
+
+    parser_bytes = TFLiteParser(buf)
+    assert len(parser_bytes.nodes) == 1
+    assert parser_bytes.nodes[0].op_type == "ADD"
+
+    # Test loading from tflite.Model object
+    import tflite
+    model_obj = tflite.Model.GetRootAsModel(buf, 0)
+    parser_obj = TFLiteParser(model_obj)
+    assert len(parser_obj.nodes) == 1
+    assert parser_obj.nodes[0].op_type == "ADD"
+
+
+def test_tflite_extra_attributes():
+    from unittest.mock import MagicMock
+
+    from neuron_toolkit.backends.tflite.utils import _get_tflite_attr
+
+    # If BuiltinOptions returns None, it should return empty dict
+    op_mock = MagicMock()
+    op_mock.BuiltinOptions.return_value = None
+    assert _get_tflite_attr(op_mock, "ADD") == {}
+

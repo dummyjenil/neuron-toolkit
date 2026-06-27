@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from typing import TYPE_CHECKING
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, cast
 
 import onnx
 from onnx import ModelProto, numpy_helper
@@ -13,24 +14,25 @@ from onnx.onnx_pb import NodeProto
 from neuron_toolkit._utils import ShapeInfo, _GraphShim
 from neuron_toolkit.backends.base import BaseParser, BaseRewriter
 from neuron_toolkit.backends.onnx.utils import _build_shape_info
-from neuron_toolkit.pattern import MatchResult, Pattern, PatternDetector
 from neuron_toolkit.query import NeuronQuery
 
 if TYPE_CHECKING:
-    pass
+    import numpy as np
+
+    from neuron_toolkit.pattern import MatchResult, Pattern
 
 log = logging.getLogger("neuron_toolkit.backends.onnx")
 
 
-class LazyTensorMap(dict):
+class LazyTensorMap(dict[str, "np.ndarray"]):
     """Lazy-loading map for ONNX initializers."""
 
-    def __init__(self, initializers):
+    def __init__(self, initializers: Sequence[onnx.TensorProto]) -> None:
         super().__init__()
         self._initializers = {t.name: t for t in initializers}
-        self._cache = {}
+        self._cache: dict[str, np.ndarray] = {}
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> np.ndarray:
         if key in self._cache:
             return self._cache[key]
         if key in self._initializers:
@@ -39,18 +41,23 @@ class LazyTensorMap(dict):
             return arr
         return super().__getitem__(key)
 
-    def __contains__(self, key):
+    def __contains__(self, key: object) -> bool:
         return (
-            key in self._initializers or key in self._cache or super().__contains__(key)
+            key in self._initializers
+            or key in self._cache
+            or super().__contains__(key)
         )
 
-    def get(self, key, default=None):
+    def get(
+        self, key: str, default: Any = None
+    ) -> Any:
+        """Get tensor by key with optional default."""
         try:
             return self[key]
         except KeyError:
             return default
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._initializers)
 
 
@@ -58,21 +65,26 @@ class ONNXParser(BaseParser):
     """Load an ONNX model and expose it for querying and pattern matching."""
 
     def __init__(
-        self, onnx_source: str | ModelProto, *, infer_shapes: bool = True
+        self,
+        onnx_source: str | bytes | ModelProto,
+        *,
+        infer_shapes: bool = True,
+        **_kwargs: object,
     ) -> None:
-        """Initialize the ONNXParser with a model file or ModelProto."""
+        """Initialize the ONNXParser with model file, bytes, or ModelProto."""
         if isinstance(onnx_source, ModelProto):
             self.model = onnx_source
+        elif isinstance(onnx_source, bytes):
+            self.model = onnx.load_model_from_string(onnx_source)
         else:
             log.info("Loading ONNX model from %r", onnx_source)
-            self.model: ModelProto = onnx.load(onnx_source)
+            self.model = onnx.load(onnx_source)
 
         if infer_shapes:
             try:
-                # Use infer_shapes_path for large models if needed, but here we just try-except
                 self.model = onnx.shape_inference.infer_shapes(self.model)
                 log.debug("Shape inference completed.")
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 log.warning("Shape inference failed: %s", exc)
 
         self.nodes: list[NodeProto] = list(self.model.graph.node)
@@ -82,7 +94,8 @@ class ONNXParser(BaseParser):
         self.shape_info: ShapeInfo = _build_shape_info(self.model)
 
         log.info(
-            "Model loaded: %d nodes, %d tensors, %d inputs, %d outputs, %d shape annotations",
+            "Model loaded: %d nodes, %d tensors, %d inputs, "
+            "%d outputs, %d shape annotations",
             len(self.nodes),
             len(self.tensor_map),
             len(self.graph_inputs),
@@ -107,33 +120,37 @@ class ONNXParser(BaseParser):
     def pattern_detect(
         self,
         pattern: Pattern,
-        start_node: str | NodeProto | None = None,
-        end_node: str | NodeProto | None = None,
+        start_node: object | None = None,
+        end_node: object | None = None,
     ) -> MatchResult | None:
         """Create a PatternDetector bound to this model and call match()."""
-        shim = _GraphShim(self.nodes, self.tensor_map, self.shape_info, backend=self)
+        from neuron_toolkit.pattern import PatternDetector  # noqa: PLC0415
+
+        shim = _GraphShim(
+            self.nodes, self.tensor_map, self.shape_info, backend=self
+        )
         det = PatternDetector(shim, start_node=start_node, end_node=end_node)
         return det.match(pattern)
 
     def rewriter(self) -> BaseRewriter:
         """Return a rewriter bound to this model."""
-        from neuron_toolkit.backends.onnx.rewriter import ONNXRewriter
+        from neuron_toolkit.backends.onnx.rewriter import ONNXRewriter  # noqa: PLC0415
 
         return ONNXRewriter(self)
 
-    def get_node_attrs(self, node: Any) -> dict[str, Any]:
+    def get_node_attrs(self, node: object) -> dict[str, object]:
         """Extract attributes from an ONNX node."""
-        from neuron_toolkit.backends.onnx.utils import _node_attrs
+        from neuron_toolkit.backends.onnx.utils import _node_attrs  # noqa: PLC0415
 
-        return _node_attrs(node)
+        return _node_attrs(cast(NodeProto, node))
 
-    def is_constant_node(self, node: Any) -> bool:
+    def is_constant_node(self, node: object) -> bool:
         """Check if node is an ONNX Constant."""
         return getattr(node, "op_type", None) == "Constant"
 
-    def get_constant_value(self, node: Any) -> Any:
+    def get_constant_value(self, node: object) -> object | None:
         """Extract value from ONNX Constant node."""
-        from onnx import numpy_helper
+        from onnx import numpy_helper  # noqa: PLC0415
 
         for attr in getattr(node, "attribute", []):
             if attr.name == "value":

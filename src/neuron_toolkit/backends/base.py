@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from neuron_toolkit.pattern import MatchResult, Pattern
@@ -23,8 +23,8 @@ class BaseParser(ABC):
     def pattern_detect(
         self,
         pattern: Pattern,
-        start_node: Any | None = None,
-        end_node: Any | None = None,
+        start_node: object | None = None,
+        end_node: object | None = None,
     ) -> MatchResult | None:
         """Find a pattern in the model."""
         pass
@@ -35,17 +35,17 @@ class BaseParser(ABC):
         pass
 
     @abstractmethod
-    def get_node_attrs(self, node: Any) -> dict[str, Any]:
+    def get_node_attrs(self, node: object) -> dict[str, object]:
         """Extract attributes from a node."""
         pass
 
     @abstractmethod
-    def is_constant_node(self, node: Any) -> bool:
+    def is_constant_node(self, node: object) -> bool:
         """Check if a node is a constant-provider."""
         pass
 
     @abstractmethod
-    def get_constant_value(self, node: Any) -> Any:
+    def get_constant_value(self, node: object) -> object | None:
         """Extract the constant value from a node."""
         pass
 
@@ -61,12 +61,12 @@ class BaseRewriter(ABC):
     @abstractmethod
     def replace(
         self,
-        nodes: Sequence[Any],
+        nodes: Sequence[object],
         new_op: str,
         inputs: list[str],
         outputs: list[str],
         name: str | None = None,
-        **attrs: Any,
+        **attrs: object,
     ) -> BaseRewriter:
         """Replace nodes with a new op."""
         pass
@@ -79,25 +79,25 @@ class BaseRewriter(ABC):
         inputs: list[str] | None = None,
         outputs: list[str] | None = None,
         name: str | None = None,
-        **attrs: Any,
+        **attrs: object,
     ) -> BaseRewriter:
         """Replace a matched subgraph."""
         pass
 
     @abstractmethod
-    def delete(self, nodes: Sequence[Any]) -> BaseRewriter:
+    def delete(self, nodes: Sequence[object]) -> BaseRewriter:
         """Delete nodes."""
         pass
 
     @abstractmethod
     def insert_before(
         self,
-        target_node: Any,
+        target_node: object,
         new_op: str,
         inputs: list[str],
         outputs: list[str],
         name: str | None = None,
-        **attrs: Any,
+        **attrs: object,
     ) -> BaseRewriter:
         """Insert a node before target."""
         pass
@@ -108,6 +108,6 @@ class BaseRewriter(ABC):
         pass
 
     @abstractmethod
-    def build(self, output_path: str | None = None) -> Any:
+    def build(self, output_path: str | None = None) -> object:
         """Apply edits and return the new model."""
         pass

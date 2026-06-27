@@ -5,52 +5,61 @@ from __future__ import annotations
 import logging
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from neuron_toolkit.backends.base import BaseParser, BaseRewriter
 from neuron_toolkit.query import NeuronQuery
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from neuron_toolkit.pattern import MatchResult, Pattern
 
 log = logging.getLogger("neuron_toolkit.backends.tflite")
 
 
-class LazyTensorMap(dict):
+class LazyTensorMap(dict[str, "np.ndarray"]):
     """Lazy-loading map for TFLite tensors."""
 
-    def __init__(self, model: Any, subgraph: Any) -> None:
+    def __init__(self, model: object, subgraph: object) -> None:
         super().__init__()
         self._model = model
         self._subgraph = subgraph
-        self._cache: dict[str, Any] = {}
+        self._cache: dict[str, np.ndarray] = {}
         self._name_to_idx: dict[str, int] = {}
 
-        for i in range(subgraph.TensorsLength()):
-            name = subgraph.Tensors(i).Name().decode("utf-8")
+        subgraph_tensors_len = cast(Any, subgraph).TensorsLength()
+        for i in range(subgraph_tensors_len):
+            tensor = cast(Any, subgraph).Tensors(i)
+            name = tensor.Name().decode("utf-8")
             self._name_to_idx[name] = i
 
-    def __getitem__(self, key: str) -> Any:
+    def __getitem__(self, key: str) -> np.ndarray:
         if key in self._cache:
             return self._cache[key]
         if key in self._name_to_idx:
             idx = self._name_to_idx[key]
-            tensor = self._subgraph.Tensors(idx)
+            tensor = cast(Any, self._subgraph).Tensors(idx)
             buffer_idx = tensor.Buffer()
             if buffer_idx > 0:
-                buffer = self._model.Buffers(buffer_idx)
+                buffer = cast(Any, self._model).Buffers(buffer_idx)
                 data = buffer.DataAsNumpy()
                 if data is not None:
-                    self._cache[key] = data
-                    return data
+                    self._cache[key] = cast("np.ndarray", data)
+                    return cast("np.ndarray", data)
         return super().__getitem__(key)
 
     def __contains__(self, key: object) -> bool:
         return (
-            key in self._name_to_idx or key in self._cache or super().__contains__(key)
+            key in self._name_to_idx
+            or key in self._cache
+            or super().__contains__(key)
         )
 
-    def get(self, key: str, default: Any = None) -> Any:
+    def get(
+        self, key: str, default: Any = None
+    ) -> Any:
+        """Get item by key with optional default."""
         try:
             return self[key]
         except KeyError:
@@ -68,41 +77,59 @@ class TFLiteNode:
     name: str
     input: list[str]
     output: list[str]
-    attrs: dict[str, Any] = field(default_factory=dict)
+    attrs: dict[str, object] = field(default_factory=dict)
 
 
 class TFLiteParser(BaseParser):
     """Load a TFLite model and expose it for querying and pattern matching."""
 
-    def __init__(self, tflite_path: str, **kwargs: Any) -> None:
+    # TODO: Improve parser to support loading TFLite model from bytes
+    # or a parsed tflite.Model object directly, similar to ONNXParser.
+    def __init__(
+        self, tflite_source: str | bytes | object, **_kwargs: object
+    ) -> None:
         """Initialize the TFLiteParser."""
-        log.info("Loading TFLite model from %r", tflite_path)
-        self.path = tflite_path
+        if isinstance(tflite_source, str):
+            log.info("Loading TFLite model from path: %r", tflite_source)
+            self.path: str | None = tflite_source
+        else:
+            log.info("Loading TFLite model from bytes or object")
+            self.path = None
 
+        self._source = tflite_source
         self.nodes: list[TFLiteNode] = []
-        self.tensor_map: LazyTensorMap | dict[str, Any] = {}
+        self.tensor_map: LazyTensorMap | dict[str, np.ndarray] = {}
         self.graph_inputs: set[str] = set()
         self.graph_outputs: set[str] = set()
         self.shape_info: dict[str, Any] = {}
 
         self._load_model()
 
-    def _load_model(self) -> None:
+    def _load_model(self) -> None:  # noqa: PLR0912
         """Parse TFLite flatbuffer using the 'tflite' package."""
         try:
-            import tflite
-        except ImportError:
-            log.error("TFLite package not found. Please install 'tflite'.")
-            return
+            import tflite  # noqa: PLC0415
+        except ImportError as exc:
+            log.exception("TFLite package not found. Please install 'tflite'.")
+            msg = "TFLite package not found."
+            raise RuntimeError(msg) from exc
 
-        from neuron_toolkit.backends.tflite.utils import (
+        from neuron_toolkit.backends.tflite.utils import (  # noqa: PLC0415
             _build_shape_info,
             _get_tflite_attr,
         )
 
-        with open(self.path, "rb") as f:
-            buf = f.read()
+        model: Any
+        if isinstance(self._source, str):
+            from pathlib import Path  # noqa: PLC0415
+
+            buf = Path(self._source).read_bytes()
             model = tflite.Model.GetRootAsModel(buf, 0)
+        elif isinstance(self._source, bytes):
+            model = tflite.Model.GetRootAsModel(self._source, 0)
+        else:
+            # Assume already parsed tflite.Model
+            model = cast(Any, self._source)
 
         # TFLite can have multiple subgraphs, we take the primary one (index 0)
         subgraph = model.Subgraphs(0)
@@ -123,11 +150,11 @@ class TFLiteParser(BaseParser):
             builtin_code = opcode.BuiltinCode()
 
             if builtin_code != tflite.BuiltinOperator.CUSTOM:
-                op_type = [
+                op_type = next(
                     k
                     for k, v in tflite.BuiltinOperator.__dict__.items()
                     if v == builtin_code and not k.startswith("__")
-                ][0]
+                )
             else:
                 op_type = opcode.CustomCode().decode("utf-8")
 
@@ -136,13 +163,17 @@ class TFLiteParser(BaseParser):
             for j in range(op.InputsLength()):
                 t_idx = op.Inputs(j)
                 if t_idx != -1:
-                    inputs.append(subgraph.Tensors(t_idx).Name().decode("utf-8"))
+                    inputs.append(
+                        subgraph.Tensors(t_idx).Name().decode("utf-8")
+                    )
 
             outputs = []
             for j in range(op.OutputsLength()):
                 t_idx = op.Outputs(j)
                 if t_idx != -1:
-                    outputs.append(subgraph.Tensors(t_idx).Name().decode("utf-8"))
+                    outputs.append(
+                        subgraph.Tensors(t_idx).Name().decode("utf-8")
+                    )
 
             # Attributes
             attrs = _get_tflite_attr(op, op_type)
@@ -190,29 +221,30 @@ class TFLiteParser(BaseParser):
     def pattern_detect(
         self,
         pattern: Pattern,
-        start_node: str | TFLiteNode | None = None,
-        end_node: str | TFLiteNode | None = None,
+        start_node: object | None = None,
+        end_node: object | None = None,
     ) -> MatchResult | None:
         """Create a PatternDetector bound to this model and call match()."""
-        from neuron_toolkit._utils import _GraphShim
-        from neuron_toolkit.pattern import PatternDetector
+        from neuron_toolkit._utils import _GraphShim  # noqa: PLC0415
+        from neuron_toolkit.pattern import PatternDetector  # noqa: PLC0415
 
-        shim = _GraphShim(self.nodes, self.tensor_map, self.shape_info, backend=self)
+        shim = _GraphShim(
+            self.nodes, self.tensor_map, self.shape_info, backend=self
+        )
         det = PatternDetector(shim, start_node=start_node, end_node=end_node)
         return det.match(pattern)
 
-    def get_node_attrs(self, node: TFLiteNode) -> dict[str, Any]:
+    def get_node_attrs(self, node: object) -> dict[str, object]:
         """Extract attributes from a TFLite node."""
-        return node.attrs
+        return getattr(node, "attrs", {})
 
-    def is_constant_node(self, node: TFLiteNode) -> bool:
+    def is_constant_node(self, node: object) -> bool:
         """TFLite doesn't typically use explicit Constant nodes in the same way."""
-        # Some TFLite exporters might use a CONST op
-        return node.op_type == "CONST"
+        return getattr(node, "op_type", None) == "CONST"
 
-    def get_constant_value(self, node: TFLiteNode) -> Any:
+    def get_constant_value(self, node: object) -> object | None:
         """Extract value from TFLite CONST node if available."""
-        return node.attrs.get("value")
+        return getattr(node, "attrs", {}).get("value", None)
 
     def summary(self) -> str:
         """Return a summary of the model."""
@@ -231,6 +263,13 @@ class TFLiteParser(BaseParser):
 
     def rewriter(self) -> BaseRewriter:
         """Return a rewriter for TFLite models."""
-        from neuron_toolkit.backends.tflite.rewriter import TFLiteRewriter
+        from neuron_toolkit.backends.tflite.rewriter import (  # noqa: PLC0415
+            TFLiteRewriter,
+        )
 
         return TFLiteRewriter(self)
+
+    @property
+    def source(self) -> object:
+        """Return the original source."""
+        return self._source
