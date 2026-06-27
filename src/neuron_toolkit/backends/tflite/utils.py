@@ -377,7 +377,12 @@ def _get_tflite_attr(op: Any, op_type: str) -> dict[str, object]:
     return attrs
 
 
-def _build_shape_info(_model: object, subgraph: Any) -> ShapeInfo:
+def _build_shape_info(
+    _model: object,
+    subgraph: Any,
+    quantization_info: dict[str, dict[str, Any]] | None = None,
+    sparsity_info: dict[str, dict[str, Any]] | None = None,
+) -> ShapeInfo:
     """Build a map from every tensor name to (rank, dtype)."""
     info: ShapeInfo = {}
 
@@ -388,5 +393,57 @@ def _build_shape_info(_model: object, subgraph: Any) -> ShapeInfo:
         dtype_code = tensor.Type()
         dtype = _TFLITE_DTYPE_TO_NP.get(dtype_code, "unknown")
         info[name] = (len(shape), dtype)
+
+        # Parse quantization info if requested
+        if quantization_info is not None:
+            q = tensor.Quantization()
+            if q is not None:
+                min_vals = (
+                    [q.Min(j) for j in range(q.MinLength())]
+                    if not q.MinIsNone()
+                    else []
+                )
+                max_vals = (
+                    [q.Max(j) for j in range(q.MaxLength())]
+                    if not q.MaxIsNone()
+                    else []
+                )
+                scales = (
+                    [q.Scale(j) for j in range(q.ScaleLength())]
+                    if not q.ScaleIsNone()
+                    else []
+                )
+                zero_points = (
+                    [q.ZeroPoint(j) for j in range(q.ZeroPointLength())]
+                    if not q.ZeroPointIsNone()
+                    else []
+                )
+                quantized_dim = q.QuantizedDimension()
+                quantization_info[name] = {
+                    "min": min_vals,
+                    "max": max_vals,
+                    "scale": scales,
+                    "zero_point": zero_points,
+                    "quantized_dimension": quantized_dim,
+                }
+
+        # Parse sparsity info if requested
+        if sparsity_info is not None:
+            s = tensor.Sparsity()
+            if s is not None:
+                traversal_order = (
+                    [s.TraversalOrder(j) for j in range(s.TraversalOrderLength())]
+                    if not s.TraversalOrderIsNone()
+                    else []
+                )
+                block_map = (
+                    [s.BlockMap(j) for j in range(s.BlockMapLength())]
+                    if not s.BlockMapIsNone()
+                    else []
+                )
+                sparsity_info[name] = {
+                    "traversal_order": traversal_order,
+                    "block_map": block_map,
+                }
 
     return info

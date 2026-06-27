@@ -94,6 +94,8 @@ class TFLiteParser(BaseParser):
         self.graph_inputs: set[str] = set()
         self.graph_outputs: set[str] = set()
         self.shape_info: dict[str, Any] = {}
+        self.quantization_info: dict[str, dict[str, Any]] = {}
+        self.sparsity_info: dict[str, dict[str, Any]] = {}
 
         self._load_model()
 
@@ -130,7 +132,9 @@ class TFLiteParser(BaseParser):
         self.tensor_map = LazyTensorMap(model, subgraph)
 
         # Build shape info
-        self.shape_info = _build_shape_info(model, subgraph)
+        self.shape_info = _build_shape_info(
+            model, subgraph, self.quantization_info, self.sparsity_info
+        )
 
         # Build nodes
         for i in range(subgraph.OperatorsLength()):

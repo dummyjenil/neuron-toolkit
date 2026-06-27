@@ -260,4 +260,72 @@ def test_tflite_all_options_parsing():
     assert attrs == {}
 
 
+def test_tflite_rewriter_topological_sort(tflite_model_path, tmp_path):
+    parser = TFLiteParser(tflite_model_path)
+    rw = parser.rewriter()
+    node = parser.nodes[0]
+
+    # We stage two edits in reverse logical order
+    # Op B consumes tensor 'new_inter_tensor' and outputs 'output'
+    # Op A consumes 'input' and outputs 'new_inter_tensor'
+    rw.replace([node], "ADD", ["new_inter_tensor"], node.output, name="OpB")
+    rw.insert_before(node, "MyFusion", node.input, ["new_inter_tensor"], name="OpA")
+
+    # Register the intermediate tensor
+    rw.register_tensor("new_inter_tensor", [1, 10], "float32")
+
+    out_path = os.path.join(tmp_path, "toposort.tflite")
+    rw.build(out_path)
+
+    # Parse back and check the order of nodes
+    new_parser = TFLiteParser(out_path)
+    assert len(new_parser.nodes) == 2
+    # OpA should come before OpB since OpB depends on its output 'new_inter_tensor'
+    assert new_parser.nodes[0].op_type == "MyFusion"
+    assert new_parser.nodes[1].op_type == "ADD"
+
+
+def test_tflite_rewriter_register_tensor(tflite_model_path, tmp_path):
+    parser = TFLiteParser(tflite_model_path)
+    rw = parser.rewriter()
+    node = parser.nodes[0]
+
+    # Register a new tensor with constant data
+    import numpy as np
+    data = np.array([1.0, 2.0, 3.0], dtype=np.float32).tobytes()
+    rw.register_tensor("my_const_tensor", [3], "float32", buffer_data=data)
+
+    # Connect it to the new op
+    rw.replace([node], "ADD", [node.input[0], "my_const_tensor"], node.output)
+
+    out_path = os.path.join(tmp_path, "regtensor.tflite")
+    rw.build(out_path)
+
+    new_parser = TFLiteParser(out_path)
+    # Check that the tensor is successfully registered and exists in the shape_info and tensor_map
+    assert "my_const_tensor" in new_parser.shape_info
+    assert new_parser.shape_info["my_const_tensor"] == (1, "float32")
+    assert "my_const_tensor" in new_parser.tensor_map
+    val = new_parser.tensor_map["my_const_tensor"]
+    assert val is not None
+    assert np.allclose(val.view(np.float32), [1.0, 2.0, 3.0])
+
+
+def test_tflite_rewriter_options_serialization(tflite_model_path, tmp_path):
+    parser = TFLiteParser(tflite_model_path)
+    rw = parser.rewriter()
+    node = parser.nodes[0]
+
+    # Replace the node with a Reshape operation with custom shape options
+    rw.replace([node], "RESHAPE", node.input, node.output, new_shape=[2, 5])
+
+    out_path = os.path.join(tmp_path, "options.tflite")
+    rw.build(out_path)
+
+    new_parser = TFLiteParser(out_path)
+    assert len(new_parser.nodes) == 1
+    assert new_parser.nodes[0].op_type == "RESHAPE"
+    assert new_parser.nodes[0].attrs.get("new_shape") == [2, 5]
+
+
 
