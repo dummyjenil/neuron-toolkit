@@ -83,8 +83,6 @@ class TFLiteNode:
 class TFLiteParser(BaseParser):
     """Load a TFLite model and expose it for querying and pattern matching."""
 
-    # TODO: Improve parser to support loading TFLite model from bytes
-    # or a parsed tflite.Model object directly, similar to ONNXParser.
     def __init__(
         self, tflite_source: str | bytes | object, **_kwargs: object
     ) -> None:

@@ -92,6 +92,7 @@ known-first-party = ["neuron_toolkit"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
+pythonpath = ["src"]
 
 addopts = """
 --strict-markers

@@ -28,8 +28,6 @@ _TFLITE_DTYPE_TO_NP: dict[int, str] = {
 }
 
 
-# TODO: Extract attributes for additional common operators
-# (e.g. FULLY_CONNECTED, CONCATENATION, ADD, SUB, etc.)
 def _get_tflite_attr(  # noqa: PLR0912, PLR0915
     op: Any, op_type: str
 ) -> dict[str, object]:

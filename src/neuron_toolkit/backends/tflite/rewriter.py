@@ -30,9 +30,6 @@ class TFLiteRewriter(BaseRewriter):
     Uses flatbuffer builders to reconstruct modified model flatbuffers.
     """
 
-    # TODO: Symmetrize TFLiteRewriter.build() to return flatbuffer bytes
-    # of the rewritten model (or write to output_path if provided),
-    # matching ONNXRewriter.build() which returns a model object.
     def __init__(self, parser: TFLiteParser) -> None:
         """Initialize with a TFLiteParser instance."""
         self._parser = parser
