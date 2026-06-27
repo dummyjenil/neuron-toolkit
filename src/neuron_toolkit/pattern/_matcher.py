@@ -161,9 +161,7 @@ class MatchingMixin:
             return self._finalize_match(node, pattern, ctx)
         return False
 
-    def _match_any_of(
-        self, node: object, pattern: Pattern, ctx: MatchContext
-    ) -> bool:
+    def _match_any_of(self, node: object, pattern: Pattern, ctx: MatchContext) -> bool:
         """Match if any of the alternatives match."""
         for alt in pattern.alternatives:
             snap = ctx.snapshot()
@@ -277,9 +275,7 @@ class MatchingMixin:
         ctx.memo[id(pattern)] = id(node)
         return True
 
-    def _get_parent_nodes(
-        self, node: object, ctx: MatchContext
-    ) -> list[object | None]:
+    def _get_parent_nodes(self, node: object, ctx: MatchContext) -> list[object | None]:
         """Get the parent nodes for a given node, filtering out visited ones."""
         parents: list[object | None] = []
         node_inputs = getattr(node, "input", [])
@@ -288,9 +284,7 @@ class MatchingMixin:
                 parents.append(None)
                 continue
             parent = self.output_to_node.get(inp)
-            p_name = (
-                getattr(parent, "name", f"node_{id(parent)}") if parent else None
-            )
+            p_name = getattr(parent, "name", f"node_{id(parent)}") if parent else None
             if parent and p_name not in ctx.visited:
                 parents.append(parent)
             else:
@@ -376,9 +370,7 @@ class MatchingMixin:
             pass
         return False
 
-    def _check_attrs(
-        self, node: object, pattern: Pattern
-    ) -> bool:
+    def _check_attrs(self, node: object, pattern: Pattern) -> bool:
         """Check if node attributes satisfy pattern constraints."""
         if not pattern.constraints:
             return True
@@ -406,9 +398,7 @@ class MatchingMixin:
                 return False
         return True
 
-    def _check_shape_dtype(
-        self, node: object, pattern: Pattern
-    ) -> bool:
+    def _check_shape_dtype(self, node: object, pattern: Pattern) -> bool:
         """Check if node output shape and dtype satisfy constraints."""
         if pattern.rank is None and pattern.dtype_str is None:
             return True

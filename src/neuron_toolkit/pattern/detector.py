@@ -67,8 +67,6 @@ class PatternDetector(MatchingMixin):
         self.end = self._resolve(end_node)
         self._nx_graph: nx.DiGraph | None = None
 
-
-
     def match(self, pattern: Pattern) -> MatchResult | None:
         """Attempt to match *pattern* starting from self.start."""
         if self.start is None:
@@ -88,9 +86,7 @@ class PatternDetector(MatchingMixin):
 
     def find_all(self, pattern: Pattern) -> list[MatchResult]:
         """Find all matches for *pattern* in the reachable subgraph."""
-        candidates = (
-            self._descendant_nodes() if self.start is not None else self._nodes
-        )
+        candidates = self._descendant_nodes() if self.start is not None else self._nodes
         shim = _GraphShim(
             self._nodes,
             self._tensor_map,

@@ -76,11 +76,7 @@ class NeuronQuery:
     @cached_property
     def output_map(self) -> dict[str, object]:
         """Return a mapping from output tensor names to their producing nodes."""
-        return {
-            out: n
-            for n in self.all_nodes
-            for out in getattr(n, "output", [])
-        }
+        return {out: n for n in self.all_nodes for out in getattr(n, "output", [])}
 
     @cached_property
     def _nx_graph(self) -> nx.DiGraph:
@@ -104,8 +100,7 @@ class NeuronQuery:
         except nx.NetworkXCyclicError:
             # Fallback to original order if cycles exist
             return {
-                getattr(n, "name", f"node_{i}"): i
-                for i, n in enumerate(self.all_nodes)
+                getattr(n, "name", f"node_{i}"): i for i, n in enumerate(self.all_nodes)
             }
 
     def _clone(self, nodes: Sequence[object]) -> NeuronQuery:
@@ -126,9 +121,7 @@ class NeuronQuery:
 
     def _params(self, node: object) -> TensorMap:
         node_inputs = getattr(node, "input", [])
-        return {
-            i: self.tensor_map[i] for i in node_inputs if i in self.tensor_map
-        }
+        return {i: self.tensor_map[i] for i in node_inputs if i in self.tensor_map}
 
     # --- Filters ---
 
@@ -181,27 +174,27 @@ class NeuronQuery:
         """Filter nodes by name (substring match by default)."""
         low = name.lower()
         return self.filter(
-            lambda n: getattr(n, "name", "") == name
-            if exact
-            else low in getattr(n, "name", "").lower()
+            lambda n: (
+                getattr(n, "name", "") == name
+                if exact
+                else low in getattr(n, "name", "").lower()
+            )
         )
 
     def find_by_tensor(self, name: str) -> NeuronQuery:
         """Filter nodes that consume or produce a specific tensor."""
         return self.filter(
-            lambda n: name in getattr(n, "input", [])
-            or name in getattr(n, "output", [])
+            lambda n: (
+                name in getattr(n, "input", []) or name in getattr(n, "output", [])
+            )
         )
 
-    def find_by_param_name(
-        self, name: str, *, exact: bool = False
-    ) -> NeuronQuery:
+    def find_by_param_name(self, name: str, *, exact: bool = False) -> NeuronQuery:
         """Filter nodes that have a weight tensor with a specific name."""
         low = name.lower()
         return self.filter(
             lambda n: any(
-                p == name if exact else low in p.lower()
-                for p in self._params(n)
+                p == name if exact else low in p.lower() for p in self._params(n)
             )
         )
 
@@ -236,9 +229,7 @@ class NeuronQuery:
             }
         elif method == "predecessors":
             targets = {
-                p
-                for n in self.nodes
-                for p in g.predecessors(getattr(n, "name", ""))
+                p for n in self.nodes for p in g.predecessors(getattr(n, "name", ""))
             }
         else:
             # Optimized multi-source traversal
@@ -253,9 +244,7 @@ class NeuronQuery:
                     visited.add(u)
                     if d < max_depth:
                         queue.extend(
-                            (v, d + 1)
-                            for v in rev.successors(u)
-                            if v not in visited
+                            (v, d + 1) for v in rev.successors(u) if v not in visited
                         )
             targets = visited - set(sources)
 
@@ -357,9 +346,7 @@ class NeuronQuery:
         all_matches = det.find_all(pattern)
 
         results = [
-            m.start
-            for m in all_matches
-            if any(id(n) in current_ids for n in m.nodes)
+            m.start for m in all_matches if any(id(n) in current_ids for n in m.nodes)
         ]
 
         return self._clone(results)
@@ -403,9 +390,7 @@ class NeuronQuery:
         rewriter = NeuronRewriter(impl)
 
         for r in self.select(pattern):
-            cast(Any, rewriter).replace_from_result(
-                r, new_op, name=name, **attrs
-            )
+            cast(Any, rewriter).replace_from_result(r, new_op, name=name, **attrs)
         return rewriter
 
     def to_pattern(self) -> Pattern:
@@ -446,9 +431,7 @@ class NeuronQuery:
             last_idx = curr_idx
         return True
 
-    def apply(
-        self, fn: Callable[[object, TensorMap], object]
-    ) -> NeuronQuery:
+    def apply(self, fn: Callable[[object, TensorMap], object]) -> NeuronQuery:
         """Apply *fn* to each node and its parameters."""
         for node in self.nodes:
             fn(node, self._params(node))
@@ -542,10 +525,7 @@ class NeuronQuery:
         lines = [f"NeuronQuery: {len(self.nodes)} nodes"]
         for i, n in enumerate(self.nodes[:MAX_REPR_NODES]):
             params = self._params(n)
-            p = (
-                ", ".join(f"{k}:{list(v.shape)}" for k, v in params.items())
-                or "-"
-            )
+            p = ", ".join(f"{k}:{list(v.shape)}" for k, v in params.items()) or "-"
             name = getattr(n, "name", "<unnamed>")
             op_type = getattr(n, "op_type", "<unknown>")
             lines.append(f"  [{i:3}] {op_type:16} {name} (params: {p})")

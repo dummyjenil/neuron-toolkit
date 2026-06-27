@@ -43,14 +43,10 @@ class LazyTensorMap(dict[str, "np.ndarray"]):
 
     def __contains__(self, key: object) -> bool:
         return (
-            key in self._initializers
-            or key in self._cache
-            or super().__contains__(key)
+            key in self._initializers or key in self._cache or super().__contains__(key)
         )
 
-    def get(
-        self, key: str, default: Any = None
-    ) -> Any:
+    def get(self, key: str, default: Any = None) -> Any:
         """Get tensor by key with optional default."""
         try:
             return self[key]
@@ -126,9 +122,7 @@ class ONNXParser(BaseParser):
         """Create a PatternDetector bound to this model and call match()."""
         from neuron_toolkit.pattern import PatternDetector  # noqa: PLC0415
 
-        shim = _GraphShim(
-            self.nodes, self.tensor_map, self.shape_info, backend=self
-        )
+        shim = _GraphShim(self.nodes, self.tensor_map, self.shape_info, backend=self)
         det = PatternDetector(shim, start_node=start_node, end_node=end_node)
         return det.match(pattern)
 

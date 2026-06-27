@@ -95,9 +95,7 @@ class ONNXRewriter(BaseRewriter):
             # or they are graph outputs.
             outputs = list(getattr(result.start, "output", []))
 
-        return self.replace(
-            result.nodes, new_op, inputs, outputs, name=name, **attrs
-        )
+        return self.replace(result.nodes, new_op, inputs, outputs, name=name, **attrs)
 
     def delete(self, nodes: Sequence[object]) -> ONNXRewriter:
         """Remove *nodes* from the graph entirely."""
@@ -146,18 +144,13 @@ class ONNXRewriter(BaseRewriter):
     def build(self, output_path: str | None = None) -> onnx.ModelProto:
         """Apply all staged edits and return the new ModelProto."""
         if not self._to_remove_ids and not self._to_insert:
-            msg = (
-                "No edits staged. Call replace(), delete(), "
-                "or insert_before() first."
-            )
+            msg = "No edits staged. Call replace(), delete(), or insert_before() first."
             raise ValueError(msg)
 
         orig_graph = self._parser.model.graph
 
         # Keep nodes not scheduled for removal
-        kept_nodes = [
-            n for n in orig_graph.node if id(n) not in self._to_remove_ids
-        ]
+        kept_nodes = [n for n in orig_graph.node if id(n) not in self._to_remove_ids]
         # Append new nodes
         all_nodes = kept_nodes + self._to_insert
 
@@ -225,8 +218,7 @@ class ONNXRewriter(BaseRewriter):
             log.info("Rewritten model saved to %r", output_path)
 
         log.debug(
-            "build(): removed %d node(s), inserted %d node(s), "
-            "result has %d node(s)",
+            "build(): removed %d node(s), inserted %d node(s), result has %d node(s)",
             len(self._to_remove_ids),
             len(self._to_insert),
             len(final_nodes),

@@ -51,14 +51,10 @@ class LazyTensorMap(dict[str, "np.ndarray"]):
 
     def __contains__(self, key: object) -> bool:
         return (
-            key in self._name_to_idx
-            or key in self._cache
-            or super().__contains__(key)
+            key in self._name_to_idx or key in self._cache or super().__contains__(key)
         )
 
-    def get(
-        self, key: str, default: Any = None
-    ) -> Any:
+    def get(self, key: str, default: Any = None) -> Any:
         """Get item by key with optional default."""
         try:
             return self[key]
@@ -83,9 +79,7 @@ class TFLiteNode:
 class TFLiteParser(BaseParser):
     """Load a TFLite model and expose it for querying and pattern matching."""
 
-    def __init__(
-        self, tflite_source: str | bytes | object, **_kwargs: object
-    ) -> None:
+    def __init__(self, tflite_source: str | bytes | object, **_kwargs: object) -> None:
         """Initialize the TFLiteParser."""
         if isinstance(tflite_source, str):
             log.info("Loading TFLite model from path: %r", tflite_source)
@@ -161,17 +155,13 @@ class TFLiteParser(BaseParser):
             for j in range(op.InputsLength()):
                 t_idx = op.Inputs(j)
                 if t_idx != -1:
-                    inputs.append(
-                        subgraph.Tensors(t_idx).Name().decode("utf-8")
-                    )
+                    inputs.append(subgraph.Tensors(t_idx).Name().decode("utf-8"))
 
             outputs = []
             for j in range(op.OutputsLength()):
                 t_idx = op.Outputs(j)
                 if t_idx != -1:
-                    outputs.append(
-                        subgraph.Tensors(t_idx).Name().decode("utf-8")
-                    )
+                    outputs.append(subgraph.Tensors(t_idx).Name().decode("utf-8"))
 
             # Attributes
             attrs = _get_tflite_attr(op, op_type)
@@ -226,9 +216,7 @@ class TFLiteParser(BaseParser):
         from neuron_toolkit._utils import _GraphShim  # noqa: PLC0415
         from neuron_toolkit.pattern import PatternDetector  # noqa: PLC0415
 
-        shim = _GraphShim(
-            self.nodes, self.tensor_map, self.shape_info, backend=self
-        )
+        shim = _GraphShim(self.nodes, self.tensor_map, self.shape_info, backend=self)
         det = PatternDetector(shim, start_node=start_node, end_node=end_node)
         return det.match(pattern)
 

@@ -123,9 +123,7 @@ def _get_tflite_attr(  # noqa: PLR0912, PLR0915
 
             opt = SqueezeOptions()
             opt.Init(options.Bytes, options.Pos)
-            dims = [
-                opt.SqueezeDims(j) for j in range(opt.SqueezeDimsLength())
-            ]
+            dims = [opt.SqueezeDims(j) for j in range(opt.SqueezeDimsLength())]
             attrs["squeeze_dims"] = dims
     except Exception as exc:  # noqa: BLE001
         log.debug("Failed to extract attributes for %s: %s", op_type, exc)

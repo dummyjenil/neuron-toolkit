@@ -92,9 +92,7 @@ class TFLiteRewriter(BaseRewriter):
         if outputs is None:
             outputs = list(start_node.output)
 
-        return self.replace(
-            result.nodes, new_op, inputs, outputs, name=name, **attrs
-        )
+        return self.replace(result.nodes, new_op, inputs, outputs, name=name, **attrs)
 
     def delete(self, nodes: Sequence[object]) -> TFLiteRewriter:
         """Remove *nodes* from the graph entirely."""
@@ -148,11 +146,7 @@ class TFLiteRewriter(BaseRewriter):
             op_name = "UNKNOWN"
             if builtin != tflite.BuiltinOperator.CUSTOM:
                 for k, v in tflite.BuiltinOperator.__dict__.items():
-                    if (
-                        isinstance(v, int)
-                        and v == builtin
-                        and not k.startswith("__")
-                    ):
+                    if isinstance(v, int) and v == builtin and not k.startswith("__"):
                         op_name = k
                         break
             else:
@@ -173,9 +167,7 @@ class TFLiteRewriter(BaseRewriter):
         tensor_name_to_idx = {}
         for i in range(orig_subgraph.TensorsLength()):
             t = orig_subgraph.Tensors(i)
-            name_str = (
-                t.Name().decode("utf-8") if t.Name() else f"tensor_{i}"
-            )
+            name_str = t.Name().decode("utf-8") if t.Name() else f"tensor_{i}"
             tensor_name_to_idx[name_str] = i
 
             name = builder.CreateString(name_str)
@@ -232,9 +224,7 @@ class TFLiteRewriter(BaseRewriter):
             tflite.OperatorAddOpcodeIndex(builder, op.OpcodeIndex())
             tflite.OperatorAddInputs(builder, inputs_vec)
             tflite.OperatorAddOutputs(builder, outputs_vec)
-            tflite.OperatorAddBuiltinOptionsType(
-                builder, op.BuiltinOptionsType()
-            )
+            tflite.OperatorAddBuiltinOptionsType(builder, op.BuiltinOptionsType())
             tflite.OperatorAddBuiltinOptions(builder, op.BuiltinOptions())
             op_offsets.append(tflite.OperatorEnd(builder))
 
@@ -246,14 +236,10 @@ class TFLiteRewriter(BaseRewriter):
             opcode_idx = opcode_map[op_type]
 
             inputs_idx = [
-                tensor_name_to_idx[n]
-                for n in inputs_names
-                if n in tensor_name_to_idx
+                tensor_name_to_idx[n] for n in inputs_names if n in tensor_name_to_idx
             ]
             outputs_idx = [
-                tensor_name_to_idx[n]
-                for n in outputs_names
-                if n in tensor_name_to_idx
+                tensor_name_to_idx[n] for n in outputs_names if n in tensor_name_to_idx
             ]
 
             tflite.OperatorStartInputsVector(builder, len(inputs_idx))
@@ -283,10 +269,7 @@ class TFLiteRewriter(BaseRewriter):
         opcode_offsets = []
         sorted_opcodes = sorted(opcode_map.items(), key=lambda x: x[1])
         for name, _ in sorted_opcodes:
-            if (
-                hasattr(tflite.BuiltinOperator, name)
-                and not name.startswith("__")
-            ):
+            if hasattr(tflite.BuiltinOperator, name) and not name.startswith("__"):
                 builtin_code = getattr(tflite.BuiltinOperator, name)
             else:
                 builtin_code = tflite.BuiltinOperator.CUSTOM
@@ -299,9 +282,7 @@ class TFLiteRewriter(BaseRewriter):
 
             deprecated_builtin_max = 127
             if builtin_code < deprecated_builtin_max:
-                tflite.OperatorCodeAddDeprecatedBuiltinCode(
-                    builder, builtin_code
-                )
+                tflite.OperatorCodeAddDeprecatedBuiltinCode(builder, builtin_code)
 
             tflite.OperatorCodeAddBuiltinCode(builder, builtin_code)
 
@@ -314,9 +295,7 @@ class TFLiteRewriter(BaseRewriter):
             builder.PrependUOffsetTRelative(o)
         return builder.EndVector()
 
-    def _build_buffers(
-        self, builder: flatbuffers.Builder, orig_model: Any
-    ) -> int:
+    def _build_buffers(self, builder: flatbuffers.Builder, orig_model: Any) -> int:
         buffer_offsets = []
         for i in range(orig_model.BuffersLength()):
             b = orig_model.Buffers(i)
@@ -339,16 +318,11 @@ class TFLiteRewriter(BaseRewriter):
     def build(self, output_path: str | None = None) -> bytes:  # noqa: PLR0915
         """Apply staged edits and return modified model flatbuffer bytes."""
         if not TFLITE_AVAILABLE:
-            msg = (
-                "flatbuffers or tflite package not found. Cannot perform build."
-            )
+            msg = "flatbuffers or tflite package not found. Cannot perform build."
             raise RuntimeError(msg)
 
         if not self._to_remove and not self._to_insert:
-            msg = (
-                "No edits staged. Call replace(), delete(), "
-                "or insert_before() first."
-            )
+            msg = "No edits staged. Call replace(), delete(), or insert_before() first."
             raise ValueError(msg)
 
         # Load original model
@@ -357,9 +331,7 @@ class TFLiteRewriter(BaseRewriter):
             buf = Path(self._parser.path).read_bytes()
             orig_model = tflite.Model.GetRootAsModel(buf, 0)
         elif isinstance(self._parser.source, bytes):
-            orig_model = tflite.Model.GetRootAsModel(
-                self._parser.source, 0
-            )
+            orig_model = tflite.Model.GetRootAsModel(self._parser.source, 0)
         else:
             orig_model = cast(Any, self._parser.source)
 
@@ -370,9 +342,7 @@ class TFLiteRewriter(BaseRewriter):
         opcode_map = self._prepare_opcodes(orig_model)
 
         # 2. Tensors Vector
-        tensors_vec, tensor_name_to_idx = self._build_tensors(
-            builder, orig_subgraph
-        )
+        tensors_vec, tensor_name_to_idx = self._build_tensors(builder, orig_subgraph)
 
         # 3. Operators Vector
         ops_vec = self._build_operators(
@@ -381,8 +351,7 @@ class TFLiteRewriter(BaseRewriter):
 
         # 4. Inputs/Outputs vectors for SubGraph
         sub_inputs = [
-            orig_subgraph.Inputs(i)
-            for i in range(orig_subgraph.InputsLength())
+            orig_subgraph.Inputs(i) for i in range(orig_subgraph.InputsLength())
         ]
         tflite.SubGraphStartInputsVector(builder, len(sub_inputs))
         for i in reversed(sub_inputs):
@@ -390,8 +359,7 @@ class TFLiteRewriter(BaseRewriter):
         sub_inputs_vec = builder.EndVector()
 
         sub_outputs = [
-            orig_subgraph.Outputs(i)
-            for i in range(orig_subgraph.OutputsLength())
+            orig_subgraph.Outputs(i) for i in range(orig_subgraph.OutputsLength())
         ]
         tflite.SubGraphStartOutputsVector(builder, len(sub_outputs))
         for o in reversed(sub_outputs):

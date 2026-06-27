@@ -96,9 +96,7 @@ class Pattern(ActivationMixin):
             op_type: The operator type.
             *input_patterns: Input patterns or raw values.
         """
-        return cls(
-            op_type=op_type, inputs=[_coerce(p) for p in input_patterns]
-        )
+        return cls(op_type=op_type, inputs=[_coerce(p) for p in input_patterns])
 
     @classmethod
     def any_of(cls, *alternatives: Pattern) -> Pattern:

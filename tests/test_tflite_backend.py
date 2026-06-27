@@ -163,6 +163,7 @@ def test_tflite_pattern_detect(tflite_model_path):
 def test_tflite_parser_bytes_and_object(tflite_model_path):
     # Test loading from bytes
     from pathlib import Path
+
     buf = Path(tflite_model_path).read_bytes()
 
     parser_bytes = TFLiteParser(buf)
@@ -171,6 +172,7 @@ def test_tflite_parser_bytes_and_object(tflite_model_path):
 
     # Test loading from tflite.Model object
     import tflite
+
     model_obj = tflite.Model.GetRootAsModel(buf, 0)
     parser_obj = TFLiteParser(model_obj)
     assert len(parser_obj.nodes) == 1
@@ -186,4 +188,3 @@ def test_tflite_extra_attributes():
     op_mock = MagicMock()
     op_mock.BuiltinOptions.return_value = None
     assert _get_tflite_attr(op_mock, "ADD") == {}
-

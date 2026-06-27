@@ -74,9 +74,7 @@ class ActivationMixin:
     @classmethod
     def gelu(cls, x: Pattern) -> Pattern:
         """Create a GeLU pattern (standard approximation)."""
-        erf_val = cast(Any, cls).op("Erf")(
-            x / cast(Any, cls).const(1.41421356237)
-        )
+        erf_val = cast(Any, cls).op("Erf")(x / cast(Any, cls).const(1.41421356237))
         return x * (erf_val + cast(Any, cls).const(1.0)) * cast(Any, cls).const(0.5)
 
     @classmethod
