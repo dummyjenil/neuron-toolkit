@@ -188,3 +188,70 @@ def test_tflite_extra_attributes():
     op_mock = MagicMock()
     op_mock.BuiltinOptions.return_value = None
     assert _get_tflite_attr(op_mock, "ADD") == {}
+
+
+def test_tflite_all_options_parsing():
+    from unittest.mock import MagicMock, patch
+    import numpy as np
+    import tflite
+    from neuron_toolkit.backends.tflite.utils import _get_tflite_attr
+
+    # Mock the options table returned by BuiltinOptions()
+    options_mock = MagicMock()
+    options_mock.Bytes = b""
+    options_mock.Pos = 0
+
+    op_mock = MagicMock()
+    op_mock.BuiltinOptions.return_value = options_mock
+    op_mock.BuiltinOptions2Type.return_value = 0
+
+    # 1. Test Conv2DOptions (nn category)
+    op_mock.BuiltinOptionsType.return_value = tflite.BuiltinOptions.Conv2DOptions
+    with patch("tflite.Conv2DOptions.Conv2DOptions") as mock_class:
+        mock_opt = mock_class.return_value
+        mock_opt.StrideW.return_value = 2
+        mock_opt.StrideH.return_value = 3
+        mock_opt.Padding.return_value = 1  # Padding.SAME
+        mock_opt.FusedActivationFunction.return_value = 1  # RELU
+        mock_opt.DilationHFactor.return_value = 4
+        mock_opt.DilationWFactor.return_value = 5
+        mock_opt.QuantizedBiasType.return_value = 0
+
+        attrs = _get_tflite_attr(op_mock, "CONV_2D")
+        assert attrs["stride_w"] == 2
+        assert attrs["stride_h"] == 3
+        assert attrs["padding"] == 1
+        assert attrs["fused_activation_function"] == 1
+        assert attrs["dilation_h_factor"] == 4
+        assert attrs["dilation_w_factor"] == 5
+
+    # 2. Test SoftmaxOptions (activation category)
+    op_mock.BuiltinOptionsType.return_value = tflite.BuiltinOptions.SoftmaxOptions
+    with patch("tflite.SoftmaxOptions.SoftmaxOptions") as mock_class:
+        mock_opt = mock_class.return_value
+        mock_opt.Beta.return_value = 1.5
+
+        attrs = _get_tflite_attr(op_mock, "SOFTMAX")
+        assert attrs["beta"] == 1.5
+
+    # 3. Test ReshapeOptions (tensor category with vector attribute)
+    op_mock.BuiltinOptionsType.return_value = tflite.BuiltinOptions.ReshapeOptions
+    with patch("tflite.ReshapeOptions.ReshapeOptions") as mock_class:
+        mock_opt = mock_class.return_value
+        mock_opt.NewShapeAsNumpy.return_value = np.array([1, 2, 3])
+
+        attrs = _get_tflite_attr(op_mock, "RESHAPE")
+        assert attrs["new_shape"] == [1, 2, 3]
+
+    # 4. Test AddOptions (arithmetic category)
+    op_mock.BuiltinOptionsType.return_value = tflite.BuiltinOptions.AddOptions
+    with patch("tflite.AddOptions.AddOptions") as mock_class:
+        mock_opt = mock_class.return_value
+        mock_opt.FusedActivationFunction.return_value = 1
+        mock_opt.PotScaleInt16.return_value = 0
+
+        attrs = _get_tflite_attr(op_mock, "ADD")
+        assert attrs["fused_activation_function"] == 1
+        assert attrs["pot_scale_int16"] == 0
+
+

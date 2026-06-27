@@ -28,9 +28,185 @@ _TFLITE_DTYPE_TO_NP: dict[int, str] = {
 }
 
 
-def _get_tflite_attr(  # noqa: PLR0912, PLR0915
-    op: Any, op_type: str
-) -> dict[str, object]:
+_OPT_TYPE_TO_CLASS: dict[int, str] = {}
+_OPT2_TYPE_TO_CLASS: dict[int, str] = {}
+
+
+def _init_opt_mappings() -> None:
+    """Initialize option type to class name mappings."""
+    if _OPT_TYPE_TO_CLASS:
+        return
+    try:
+        import tflite  # noqa: PLC0415
+
+        if hasattr(tflite, "BuiltinOptions"):
+            for name in dir(tflite.BuiltinOptions):
+                if not name.startswith("_") and name != "NONE":
+                    val = getattr(tflite.BuiltinOptions, name)
+                    _OPT_TYPE_TO_CLASS[val] = name
+        if hasattr(tflite, "BuiltinOptions2"):
+            for name in dir(tflite.BuiltinOptions2):
+                if not name.startswith("_") and name != "NONE":
+                    val = getattr(tflite.BuiltinOptions2, name)
+                    _OPT2_TYPE_TO_CLASS[val] = name
+    except ImportError:
+        pass
+
+
+# Map options class name to category suffix
+_OPT_CLASS_TO_CATEGORY: dict[str, str] = {
+    "SoftmaxOptions": "activation",
+    "HardSwishOptions": "activation",
+    "LeakyReluOptions": "activation",
+    "GeluOptions": "activation",
+    "AddOptions": "arithmetic",
+    "SubOptions": "arithmetic",
+    "MulOptions": "arithmetic",
+    "DivOptions": "arithmetic",
+    "NegOptions": "arithmetic",
+    "AbsOptions": "arithmetic",
+    "SquareOptions": "arithmetic",
+    "SquaredDifferenceOptions": "arithmetic",
+    "PowOptions": "arithmetic",
+    "ExpOptions": "arithmetic",
+    "LogSoftmaxOptions": "arithmetic",
+    "FloorDivOptions": "arithmetic",
+    "FloorModOptions": "arithmetic",
+    "AddNOptions": "arithmetic",
+    "CosOptions": "arithmetic",
+    "ATan2Options": "arithmetic",
+    "SignOptions": "arithmetic",
+    "MaximumMinimumOptions": "arithmetic",
+    "BitwiseXorOptions": "arithmetic",
+    "RightShiftOptions": "arithmetic",
+    "ReshapeOptions": "tensor",
+    "SqueezeOptions": "tensor",
+    "TransposeOptions": "tensor",
+    "SliceOptions": "tensor",
+    "StridedSliceOptions": "tensor",
+    "ConcatenationOptions": "tensor",
+    "SplitOptions": "tensor",
+    "SplitVOptions": "tensor",
+    "TileOptions": "tensor",
+    "PackOptions": "tensor",
+    "UnpackOptions": "tensor",
+    "ExpandDimsOptions": "tensor",
+    "BroadcastToOptions": "tensor",
+    "ReverseV2Options": "tensor",
+    "ReverseSequenceOptions": "tensor",
+    "GatherOptions": "tensor",
+    "GatherNdOptions": "tensor",
+    "ScatterNdOptions": "tensor",
+    "OneHotOptions": "tensor",
+    "ShapeOptions": "tensor",
+    "UniqueOptions": "tensor",
+    "RankOptions": "tensor",
+    "CastOptions": "tensor",
+    "BitcastOptions": "tensor",
+    "FillOptions": "tensor",
+    "ZerosLikeOptions": "tensor",
+    "Conv2DOptions": "nn",
+    "Conv3DOptions": "nn",
+    "DepthwiseConv2DOptions": "nn",
+    "TransposeConvOptions": "nn",
+    "FullyConnectedOptions": "nn",
+    "BatchMatMulOptions": "nn",
+    "Pool2DOptions": "nn",
+    "L2NormOptions": "nn",
+    "LocalResponseNormalizationOptions": "nn",
+    "SVDFOptions": "nn",
+    "ReducerOptions": "reduction",
+    "ArgMaxOptions": "reduction",
+    "ArgMinOptions": "reduction",
+    "EqualOptions": "logical",
+    "NotEqualOptions": "logical",
+    "LessOptions": "logical",
+    "LessEqualOptions": "logical",
+    "GreaterOptions": "logical",
+    "GreaterEqualOptions": "logical",
+    "LogicalAndOptions": "logical",
+    "LogicalOrOptions": "logical",
+    "LogicalNotOptions": "logical",
+    "SelectOptions": "logical",
+    "SelectV2Options": "logical",
+    "WhereOptions": "logical",
+    "IfOptions": "control_flow",
+    "WhileOptions": "control_flow",
+    "CallOptions": "control_flow",
+    "CallOnceOptions": "control_flow",
+    "DilateOptions": "stablehlo",
+    "ReduceWindowOptions": "stablehlo",
+    "StableHLOCompositeOptions": "stablehlo",
+    "StablehloBroadcastInDimOptions": "stablehlo",
+    "StablehloCompareOptions": "stablehlo",
+    "StablehloConcatenateOptions": "stablehlo",
+    "StablehloConvolutionOptions": "stablehlo",
+    "StablehloCustomCallOptions": "stablehlo",
+    "StablehloDotGeneralOptions": "stablehlo",
+    "StablehloDynamicSliceOptions": "stablehlo",
+    "StablehloGatherOptions": "stablehlo",
+    "StablehloIotaOptions": "stablehlo",
+    "StablehloPadOptions": "stablehlo",
+    "StablehloReduceOptions": "stablehlo",
+    "StablehloReduceWindowOptions": "stablehlo",
+    "StablehloRngBitGeneratorOptions": "stablehlo",
+    "StablehloScatterOptions": "stablehlo",
+    "StablehloShiftLeftOptions": "stablehlo",
+    "StablehloSliceOptions": "stablehlo",
+    "StablehloSortOptions": "stablehlo",
+    "StablehloTransposeOptions": "stablehlo",
+    "StablehloWhileOptions": "stablehlo",
+    "AssignVariableOptions": "misc",
+    "BatchToSpaceNDOptions": "misc",
+    "BidirectionalSequenceLSTMOptions": "misc",
+    "BidirectionalSequenceRNNOptions": "misc",
+    "BucketizeOptions": "misc",
+    "ConcatEmbeddingsOptions": "misc",
+    "CumsumOptions": "misc",
+    "DensifyOptions": "misc",
+    "DepthToSpaceOptions": "misc",
+    "DequantizeOptions": "misc",
+    "DynamicUpdateSliceOptions": "misc",
+    "EmbeddingLookupSparseOptions": "misc",
+    "FakeQuantOptions": "misc",
+    "HashtableFindOptions": "misc",
+    "HashtableImportOptions": "misc",
+    "HashtableOptions": "misc",
+    "HashtableSizeOptions": "misc",
+    "LSHProjectionOptions": "misc",
+    "LSTMOptions": "misc",
+    "MatrixDiagOptions": "misc",
+    "MatrixSetDiagOptions": "misc",
+    "MirrorPadOptions": "misc",
+    "NonMaxSuppressionV4Options": "misc",
+    "NonMaxSuppressionV5Options": "misc",
+    "PadOptions": "misc",
+    "PadV2Options": "misc",
+    "QuantizeOptions": "misc",
+    "RNNOptions": "misc",
+    "RandomOptions": "misc",
+    "RangeOptions": "misc",
+    "ReadVariableOptions": "misc",
+    "ResizeBilinearOptions": "misc",
+    "ResizeNearestNeighborOptions": "misc",
+    "Rfft2dOptions": "misc",
+    "SegmentSumOptions": "misc",
+    "SequenceRNNOptions": "misc",
+    "SkipGramOptions": "misc",
+    "SpaceToBatchNDOptions": "misc",
+    "SpaceToDepthOptions": "misc",
+    "SparseToDenseOptions": "misc",
+    "TopKV2Options": "misc",
+    "UnidirectionalSequenceLSTMOptions": "misc",
+    "UnsortedSegmentMaxOptions": "misc",
+    "UnsortedSegmentMinOptions": "misc",
+    "UnsortedSegmentProdOptions": "misc",
+    "UnsortedSegmentSumOptions": "misc",
+    "VarHandleOptions": "misc",
+}
+
+
+def _get_tflite_attr(op: Any, op_type: str) -> dict[str, object]:
     """Try to extract attributes from a TFLite operator.
 
     This is challenging because TFLite uses specific flatbuffer tables for
@@ -40,95 +216,40 @@ def _get_tflite_attr(  # noqa: PLR0912, PLR0915
     if options is None:
         return {}
 
-    attrs: dict[str, Any] = {}
+    _init_opt_mappings()
+
+    builtin_opt_type = op.BuiltinOptionsType()
+    builtin_opt2_type = op.BuiltinOptions2Type()
+
+    opt_class_name = None
+    if builtin_opt_type != 0:
+        opt_class_name = _OPT_TYPE_TO_CLASS.get(builtin_opt_type)
+    elif builtin_opt2_type != 0:
+        opt_class_name = _OPT2_TYPE_TO_CLASS.get(builtin_opt2_type)
+
+    if not opt_class_name:
+        return {}
+
+    category = _OPT_CLASS_TO_CATEGORY.get(opt_class_name)
+    if not category:
+        return {}
 
     try:
-        if op_type == "CONV_2D":
-            from tflite.Conv2DOptions import Conv2DOptions  # noqa: PLC0415
-
-            opt = Conv2DOptions()
-            opt.Init(options.Bytes, options.Pos)
-            attrs["stride_h"] = opt.StrideH()
-            attrs["stride_w"] = opt.StrideW()
-            attrs["padding"] = opt.Padding()
-            attrs["fused_activation_function"] = opt.FusedActivationFunction()
-            attrs["dilation_h_factor"] = opt.DilationHFactor()
-            attrs["dilation_w_factor"] = opt.DilationWFactor()
-        elif op_type in {"POOL_2D", "AVERAGE_POOL_2D", "MAX_POOL_2D"}:
-            from tflite.Pool2DOptions import Pool2DOptions  # noqa: PLC0415
-
-            opt = Pool2DOptions()
-            opt.Init(options.Bytes, options.Pos)
-            attrs["stride_h"] = opt.StrideH()
-            attrs["stride_w"] = opt.StrideW()
-            attrs["padding"] = opt.Padding()
-            attrs["filter_height"] = opt.FilterHeight()
-            attrs["filter_width"] = opt.FilterWidth()
-            attrs["fused_activation_function"] = opt.FusedActivationFunction()
-        elif op_type == "RESHAPE":
-            from tflite.ReshapeOptions import ReshapeOptions  # noqa: PLC0415
-
-            opt = ReshapeOptions()
-            opt.Init(options.Bytes, options.Pos)
-        elif op_type == "SOFTMAX":
-            from tflite.SoftmaxOptions import SoftmaxOptions  # noqa: PLC0415
-
-            opt = SoftmaxOptions()
-            opt.Init(options.Bytes, options.Pos)
-            attrs["beta"] = opt.Beta()
-        elif op_type == "FULLY_CONNECTED":
-            from tflite.FullyConnectedOptions import (  # noqa: PLC0415
-                FullyConnectedOptions,
-            )
-
-            opt = FullyConnectedOptions()
-            opt.Init(options.Bytes, options.Pos)
-            attrs["fused_activation_function"] = opt.FusedActivationFunction()
-            attrs["keep_num_dims"] = opt.KeepNumDims()
-        elif op_type == "CONCATENATION":
-            from tflite.ConcatenationOptions import (  # noqa: PLC0415
-                ConcatenationOptions,
-            )
-
-            opt = ConcatenationOptions()
-            opt.Init(options.Bytes, options.Pos)
-            attrs["axis"] = opt.Axis()
-            attrs["fused_activation_function"] = opt.FusedActivationFunction()
-        elif op_type == "ADD":
-            from tflite.AddOptions import AddOptions  # noqa: PLC0415
-
-            opt = AddOptions()
-            opt.Init(options.Bytes, options.Pos)
-            attrs["fused_activation_function"] = opt.FusedActivationFunction()
-        elif op_type == "SUB":
-            from tflite.SubOptions import SubOptions  # noqa: PLC0415
-
-            opt = SubOptions()
-            opt.Init(options.Bytes, options.Pos)
-            attrs["fused_activation_function"] = opt.FusedActivationFunction()
-        elif op_type == "MUL":
-            from tflite.MulOptions import MulOptions  # noqa: PLC0415
-
-            opt = MulOptions()
-            opt.Init(options.Bytes, options.Pos)
-            attrs["fused_activation_function"] = opt.FusedActivationFunction()
-        elif op_type == "DIV":
-            from tflite.DivOptions import DivOptions  # noqa: PLC0415
-
-            opt = DivOptions()
-            opt.Init(options.Bytes, options.Pos)
-            attrs["fused_activation_function"] = opt.FusedActivationFunction()
-        elif op_type == "SQUEEZE":
-            from tflite.SqueezeOptions import SqueezeOptions  # noqa: PLC0415
-
-            opt = SqueezeOptions()
-            opt.Init(options.Bytes, options.Pos)
-            dims = [opt.SqueezeDims(j) for j in range(opt.SqueezeDimsLength())]
-            attrs["squeeze_dims"] = dims
+        # Dynamically import the category module and the specific parse function
+        module_name = f"neuron_toolkit.backends.tflite.opt_{category}"
+        module = __import__(module_name, fromlist=[f"parse_{opt_class_name}"])
+        parse_func = getattr(module, f"parse_{opt_class_name}")
+        return parse_func(options)
     except Exception as exc:  # noqa: BLE001
-        log.debug("Failed to extract attributes for %s: %s", op_type, exc)
+        log.debug(
+            "Failed to extract attributes for %s (class: %s, category: %s): %s",
+            op_type,
+            opt_class_name,
+            category,
+            exc,
+        )
 
-    return attrs
+    return {}
 
 
 def _build_shape_info(_model: object, subgraph: Any) -> ShapeInfo:
