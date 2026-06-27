@@ -205,6 +205,118 @@ _OPT_CLASS_TO_CATEGORY: dict[str, str] = {
     "VarHandleOptions": "misc",
 }
 
+_EMPTY_OPTIONS_CLASSES: set[str] = {
+    "ATan2Options",
+    "AbsOptions",
+    "AddNOptions",
+    "AssignVariableOptions",
+    "BatchToSpaceNDOptions",
+    "BitcastOptions",
+    "BitwiseXorOptions",
+    "BroadcastToOptions",
+    "CosOptions",
+    "DensifyOptions",
+    "DequantizeOptions",
+    "DilateOptions",
+    "DynamicUpdateSliceOptions",
+    "EqualOptions",
+    "ExpOptions",
+    "ExpandDimsOptions",
+    "FillOptions",
+    "FloorDivOptions",
+    "FloorModOptions",
+    "GatherNdOptions",
+    "GreaterEqualOptions",
+    "GreaterOptions",
+    "HardSwishOptions",
+    "HashtableFindOptions",
+    "HashtableImportOptions",
+    "HashtableSizeOptions",
+    "LessEqualOptions",
+    "LessOptions",
+    "LogSoftmaxOptions",
+    "LogicalAndOptions",
+    "LogicalNotOptions",
+    "LogicalOrOptions",
+    "MatrixDiagOptions",
+    "MatrixSetDiagOptions",
+    "MaximumMinimumOptions",
+    "NegOptions",
+    "NonMaxSuppressionV4Options",
+    "NonMaxSuppressionV5Options",
+    "NotEqualOptions",
+    "PadOptions",
+    "PadV2Options",
+    "PowOptions",
+    "QuantizeOptions",
+    "RangeOptions",
+    "RankOptions",
+    "ReadVariableOptions",
+    "ReverseV2Options",
+    "Rfft2dOptions",
+    "RightShiftOptions",
+    "ScatterNdOptions",
+    "SegmentSumOptions",
+    "SelectOptions",
+    "SelectV2Options",
+    "SignOptions",
+    "SliceOptions",
+    "SpaceToBatchNDOptions",
+    "SquareOptions",
+    "SquaredDifferenceOptions",
+    "StablehloShiftLeftOptions",
+    "TileOptions",
+    "TopKV2Options",
+    "TransposeOptions",
+    "UnsortedSegmentMaxOptions",
+    "UnsortedSegmentMinOptions",
+    "UnsortedSegmentProdOptions",
+    "UnsortedSegmentSumOptions",
+    "WhereOptions",
+    "ZerosLikeOptions",
+}
+
+_ENUM_FIELD_MAPPING: dict[str, str] = {
+    "fused_activation_function": "ActivationFunctionType",
+    "padding": "Padding",
+    "combiner": "CombinerType",
+    "weights_format": "FullyConnectedOptionsWeightsFormat",
+    "type": "LSHProjectionType",
+    "kernel_type": "LSTMKernelType",
+    "mode": "MirrorPadMode",
+    "reduce_function": "ReduceWindowFunction",
+    "algorithm": "RngAlgorithm",
+    "comparison_direction": "StablehloComparisonDirection",
+    "compare_type": "StablehloComparisonType",
+    "precision_config": "StablehloPrecisionConfig",
+    "in_data_type": "TensorType",
+    "out_data_type": "TensorType",
+    "key_dtype": "TensorType",
+    "value_dtype": "TensorType",
+    "idx_out_type": "TensorType",
+    "output_type": "TensorType",
+    "out_type": "TensorType",
+}
+
+_ENUM_CACHE: dict[str, dict[int, str]] = {}
+
+
+def _get_enum_string(enum_class_name: str, val: int) -> str | int:
+    """Resolve enum value to string representation from the tflite enum class."""
+    if enum_class_name not in _ENUM_CACHE:
+        _ENUM_CACHE[enum_class_name] = {}
+        try:
+            mod = __import__(f"tflite.{enum_class_name}", fromlist=[enum_class_name])
+            enum_cls = getattr(mod, enum_class_name)
+            for name in dir(enum_cls):
+                if not name.startswith("_"):
+                    item_val = getattr(enum_cls, name)
+                    if isinstance(item_val, int):
+                        _ENUM_CACHE[enum_class_name][item_val] = name
+        except (ImportError, AttributeError):
+            pass
+    return _ENUM_CACHE[enum_class_name].get(val, val)
+
 
 def _get_tflite_attr(op: Any, op_type: str) -> dict[str, object]:
     """Try to extract attributes from a TFLite operator.
@@ -230,16 +342,29 @@ def _get_tflite_attr(op: Any, op_type: str) -> dict[str, object]:
     if not opt_class_name:
         return {}
 
+    if opt_class_name in _EMPTY_OPTIONS_CLASSES:
+        return {}
+
     category = _OPT_CLASS_TO_CATEGORY.get(opt_class_name)
     if not category:
         return {}
 
+    attrs = {}
     try:
         # Dynamically import the category module and the specific parse function
         module_name = f"neuron_toolkit.backends.tflite.opt_{category}"
         module = __import__(module_name, fromlist=[f"parse_{opt_class_name}"])
         parse_func = getattr(module, f"parse_{opt_class_name}")
-        return parse_func(options)
+        attrs = parse_func(options)
+
+        # Post-process attributes to resolve enums
+        for k, v in list(attrs.items()):
+            if k in _ENUM_FIELD_MAPPING:
+                enum_class = _ENUM_FIELD_MAPPING[k]
+                if isinstance(v, list):
+                    attrs[k] = [_get_enum_string(enum_class, x) for x in v]
+                else:
+                    attrs[k] = _get_enum_string(enum_class, v)
     except Exception as exc:  # noqa: BLE001
         log.debug(
             "Failed to extract attributes for %s (class: %s, category: %s): %s",
@@ -249,7 +374,7 @@ def _get_tflite_attr(op: Any, op_type: str) -> dict[str, object]:
             exc,
         )
 
-    return {}
+    return attrs
 
 
 def _build_shape_info(_model: object, subgraph: Any) -> ShapeInfo:

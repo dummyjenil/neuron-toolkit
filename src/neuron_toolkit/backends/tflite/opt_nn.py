@@ -14,9 +14,9 @@ def parse_BatchMatMulOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["adj_x"] = opt.AdjX()
-    attrs["adj_y"] = opt.AdjY()
-    attrs["asymmetric_quantize_inputs"] = opt.AsymmetricQuantizeInputs()
+    attrs['adj_x'] = opt.AdjX()
+    attrs['adj_y'] = opt.AdjY()
+    attrs['asymmetric_quantize_inputs'] = opt.AsymmetricQuantizeInputs()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -25,7 +25,6 @@ def parse_BatchMatMulOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
 
 def parse_Conv2DOptions(_options: Any) -> dict[str, Any]:
     """Parse Conv2DOptions attributes."""
@@ -35,13 +34,13 @@ def parse_Conv2DOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["dilation_h_factor"] = opt.DilationHFactor()
-    attrs["dilation_w_factor"] = opt.DilationWFactor()
-    attrs["fused_activation_function"] = opt.FusedActivationFunction()
-    attrs["padding"] = opt.Padding()
-    attrs["quantized_bias_type"] = opt.QuantizedBiasType()
-    attrs["stride_h"] = opt.StrideH()
-    attrs["stride_w"] = opt.StrideW()
+    attrs['dilation_h_factor'] = opt.DilationHFactor()
+    attrs['dilation_w_factor'] = opt.DilationWFactor()
+    attrs['fused_activation_function'] = opt.FusedActivationFunction()
+    attrs['padding'] = opt.Padding()
+    attrs['quantized_bias_type'] = opt.QuantizedBiasType()
+    attrs['stride_h'] = opt.StrideH()
+    attrs['stride_w'] = opt.StrideW()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -50,7 +49,6 @@ def parse_Conv2DOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
 
 def parse_Conv3DOptions(_options: Any) -> dict[str, Any]:
     """Parse Conv3DOptions attributes."""
@@ -60,14 +58,14 @@ def parse_Conv3DOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["dilation_d_factor"] = opt.DilationDFactor()
-    attrs["dilation_h_factor"] = opt.DilationHFactor()
-    attrs["dilation_w_factor"] = opt.DilationWFactor()
-    attrs["fused_activation_function"] = opt.FusedActivationFunction()
-    attrs["padding"] = opt.Padding()
-    attrs["stride_d"] = opt.StrideD()
-    attrs["stride_h"] = opt.StrideH()
-    attrs["stride_w"] = opt.StrideW()
+    attrs['dilation_d_factor'] = opt.DilationDFactor()
+    attrs['dilation_h_factor'] = opt.DilationHFactor()
+    attrs['dilation_w_factor'] = opt.DilationWFactor()
+    attrs['fused_activation_function'] = opt.FusedActivationFunction()
+    attrs['padding'] = opt.Padding()
+    attrs['stride_d'] = opt.StrideD()
+    attrs['stride_h'] = opt.StrideH()
+    attrs['stride_w'] = opt.StrideW()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -76,7 +74,6 @@ def parse_Conv3DOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
 
 def parse_DepthwiseConv2DOptions(_options: Any) -> dict[str, Any]:
     """Parse DepthwiseConv2DOptions attributes."""
@@ -86,13 +83,13 @@ def parse_DepthwiseConv2DOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["depth_multiplier"] = opt.DepthMultiplier()
-    attrs["dilation_h_factor"] = opt.DilationHFactor()
-    attrs["dilation_w_factor"] = opt.DilationWFactor()
-    attrs["fused_activation_function"] = opt.FusedActivationFunction()
-    attrs["padding"] = opt.Padding()
-    attrs["stride_h"] = opt.StrideH()
-    attrs["stride_w"] = opt.StrideW()
+    attrs['depth_multiplier'] = opt.DepthMultiplier()
+    attrs['dilation_h_factor'] = opt.DilationHFactor()
+    attrs['dilation_w_factor'] = opt.DilationWFactor()
+    attrs['fused_activation_function'] = opt.FusedActivationFunction()
+    attrs['padding'] = opt.Padding()
+    attrs['stride_h'] = opt.StrideH()
+    attrs['stride_w'] = opt.StrideW()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -101,7 +98,6 @@ def parse_DepthwiseConv2DOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
 
 def parse_FullyConnectedOptions(_options: Any) -> dict[str, Any]:
     """Parse FullyConnectedOptions attributes."""
@@ -111,11 +107,11 @@ def parse_FullyConnectedOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["asymmetric_quantize_inputs"] = opt.AsymmetricQuantizeInputs()
-    attrs["fused_activation_function"] = opt.FusedActivationFunction()
-    attrs["keep_num_dims"] = opt.KeepNumDims()
-    attrs["quantized_bias_type"] = opt.QuantizedBiasType()
-    attrs["weights_format"] = opt.WeightsFormat()
+    attrs['asymmetric_quantize_inputs'] = opt.AsymmetricQuantizeInputs()
+    attrs['fused_activation_function'] = opt.FusedActivationFunction()
+    attrs['keep_num_dims'] = opt.KeepNumDims()
+    attrs['quantized_bias_type'] = opt.QuantizedBiasType()
+    attrs['weights_format'] = opt.WeightsFormat()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -124,7 +120,6 @@ def parse_FullyConnectedOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
 
 def parse_L2NormOptions(_options: Any) -> dict[str, Any]:
     """Parse L2NormOptions attributes."""
@@ -134,7 +129,7 @@ def parse_L2NormOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["fused_activation_function"] = opt.FusedActivationFunction()
+    attrs['fused_activation_function'] = opt.FusedActivationFunction()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -143,7 +138,6 @@ def parse_L2NormOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
 
 def parse_LocalResponseNormalizationOptions(_options: Any) -> dict[str, Any]:
     """Parse LocalResponseNormalizationOptions attributes."""
@@ -155,10 +149,10 @@ def parse_LocalResponseNormalizationOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["alpha"] = opt.Alpha()
-    attrs["beta"] = opt.Beta()
-    attrs["bias"] = opt.Bias()
-    attrs["radius"] = opt.Radius()
+    attrs['alpha'] = opt.Alpha()
+    attrs['beta'] = opt.Beta()
+    attrs['bias'] = opt.Bias()
+    attrs['radius'] = opt.Radius()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -167,7 +161,6 @@ def parse_LocalResponseNormalizationOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
 
 def parse_Pool2DOptions(_options: Any) -> dict[str, Any]:
     """Parse Pool2DOptions attributes."""
@@ -177,12 +170,12 @@ def parse_Pool2DOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["filter_height"] = opt.FilterHeight()
-    attrs["filter_width"] = opt.FilterWidth()
-    attrs["fused_activation_function"] = opt.FusedActivationFunction()
-    attrs["padding"] = opt.Padding()
-    attrs["stride_h"] = opt.StrideH()
-    attrs["stride_w"] = opt.StrideW()
+    attrs['filter_height'] = opt.FilterHeight()
+    attrs['filter_width'] = opt.FilterWidth()
+    attrs['fused_activation_function'] = opt.FusedActivationFunction()
+    attrs['padding'] = opt.Padding()
+    attrs['stride_h'] = opt.StrideH()
+    attrs['stride_w'] = opt.StrideW()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -191,7 +184,6 @@ def parse_Pool2DOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
 
 def parse_SVDFOptions(_options: Any) -> dict[str, Any]:
     """Parse SVDFOptions attributes."""
@@ -201,9 +193,9 @@ def parse_SVDFOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["asymmetric_quantize_inputs"] = opt.AsymmetricQuantizeInputs()
-    attrs["fused_activation_function"] = opt.FusedActivationFunction()
-    attrs["rank"] = opt.Rank()
+    attrs['asymmetric_quantize_inputs'] = opt.AsymmetricQuantizeInputs()
+    attrs['fused_activation_function'] = opt.FusedActivationFunction()
+    attrs['rank'] = opt.Rank()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -213,7 +205,6 @@ def parse_SVDFOptions(_options: Any) -> dict[str, Any]:
             attrs[k] = v.tolist()
     return attrs
 
-
 def parse_TransposeConvOptions(_options: Any) -> dict[str, Any]:
     """Parse TransposeConvOptions attributes."""
     from tflite.TransposeConvOptions import TransposeConvOptions
@@ -222,11 +213,11 @@ def parse_TransposeConvOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["fused_activation_function"] = opt.FusedActivationFunction()
-    attrs["padding"] = opt.Padding()
-    attrs["quantized_bias_type"] = opt.QuantizedBiasType()
-    attrs["stride_h"] = opt.StrideH()
-    attrs["stride_w"] = opt.StrideW()
+    attrs['fused_activation_function'] = opt.FusedActivationFunction()
+    attrs['padding'] = opt.Padding()
+    attrs['quantized_bias_type'] = opt.QuantizedBiasType()
+    attrs['stride_h'] = opt.StrideH()
+    attrs['stride_w'] = opt.StrideW()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):

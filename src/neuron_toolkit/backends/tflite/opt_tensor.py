@@ -6,16 +6,6 @@ from __future__ import annotations
 from typing import Any
 
 
-def parse_BitcastOptions(_options: Any) -> dict[str, Any]:
-    """Parse BitcastOptions attributes."""
-    return {}
-
-
-def parse_BroadcastToOptions(_options: Any) -> dict[str, Any]:
-    """Parse BroadcastToOptions attributes."""
-    return {}
-
-
 def parse_CastOptions(_options: Any) -> dict[str, Any]:
     """Parse CastOptions attributes."""
     from tflite.CastOptions import CastOptions
@@ -24,8 +14,8 @@ def parse_CastOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["in_data_type"] = opt.InDataType()
-    attrs["out_data_type"] = opt.OutDataType()
+    attrs['in_data_type'] = opt.InDataType()
+    attrs['out_data_type'] = opt.OutDataType()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -34,7 +24,6 @@ def parse_CastOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
 
 def parse_ConcatenationOptions(_options: Any) -> dict[str, Any]:
     """Parse ConcatenationOptions attributes."""
@@ -44,8 +33,8 @@ def parse_ConcatenationOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["axis"] = opt.Axis()
-    attrs["fused_activation_function"] = opt.FusedActivationFunction()
+    attrs['axis'] = opt.Axis()
+    attrs['fused_activation_function'] = opt.FusedActivationFunction()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -54,22 +43,6 @@ def parse_ConcatenationOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
-
-def parse_ExpandDimsOptions(_options: Any) -> dict[str, Any]:
-    """Parse ExpandDimsOptions attributes."""
-    return {}
-
-
-def parse_FillOptions(_options: Any) -> dict[str, Any]:
-    """Parse FillOptions attributes."""
-    return {}
-
-
-def parse_GatherNdOptions(_options: Any) -> dict[str, Any]:
-    """Parse GatherNdOptions attributes."""
-    return {}
-
 
 def parse_GatherOptions(_options: Any) -> dict[str, Any]:
     """Parse GatherOptions attributes."""
@@ -79,8 +52,8 @@ def parse_GatherOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["axis"] = opt.Axis()
-    attrs["batch_dims"] = opt.BatchDims()
+    attrs['axis'] = opt.Axis()
+    attrs['batch_dims'] = opt.BatchDims()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -89,7 +62,6 @@ def parse_GatherOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
 
 def parse_OneHotOptions(_options: Any) -> dict[str, Any]:
     """Parse OneHotOptions attributes."""
@@ -99,7 +71,7 @@ def parse_OneHotOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["axis"] = opt.Axis()
+    attrs['axis'] = opt.Axis()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -108,7 +80,6 @@ def parse_OneHotOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
 
 def parse_PackOptions(_options: Any) -> dict[str, Any]:
     """Parse PackOptions attributes."""
@@ -118,8 +89,8 @@ def parse_PackOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["axis"] = opt.Axis()
-    attrs["values_count"] = opt.ValuesCount()
+    attrs['axis'] = opt.Axis()
+    attrs['values_count'] = opt.ValuesCount()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -128,12 +99,6 @@ def parse_PackOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
-
-def parse_RankOptions(_options: Any) -> dict[str, Any]:
-    """Parse RankOptions attributes."""
-    return {}
-
 
 def parse_ReshapeOptions(_options: Any) -> dict[str, Any]:
     """Parse ReshapeOptions attributes."""
@@ -143,7 +108,7 @@ def parse_ReshapeOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["new_shape"] = opt.NewShapeAsNumpy()
+    attrs['new_shape'] = opt.NewShapeAsNumpy()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -152,7 +117,6 @@ def parse_ReshapeOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
 
 def parse_ReverseSequenceOptions(_options: Any) -> dict[str, Any]:
     """Parse ReverseSequenceOptions attributes."""
@@ -162,8 +126,8 @@ def parse_ReverseSequenceOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["batch_dim"] = opt.BatchDim()
-    attrs["seq_dim"] = opt.SeqDim()
+    attrs['batch_dim'] = opt.BatchDim()
+    attrs['seq_dim'] = opt.SeqDim()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -172,17 +136,6 @@ def parse_ReverseSequenceOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
-
-def parse_ReverseV2Options(_options: Any) -> dict[str, Any]:
-    """Parse ReverseV2Options attributes."""
-    return {}
-
-
-def parse_ScatterNdOptions(_options: Any) -> dict[str, Any]:
-    """Parse ScatterNdOptions attributes."""
-    return {}
-
 
 def parse_ShapeOptions(_options: Any) -> dict[str, Any]:
     """Parse ShapeOptions attributes."""
@@ -192,7 +145,7 @@ def parse_ShapeOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["out_type"] = opt.OutType()
+    attrs['out_type'] = opt.OutType()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -201,12 +154,6 @@ def parse_ShapeOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
-
-def parse_SliceOptions(_options: Any) -> dict[str, Any]:
-    """Parse SliceOptions attributes."""
-    return {}
-
 
 def parse_SplitOptions(_options: Any) -> dict[str, Any]:
     """Parse SplitOptions attributes."""
@@ -216,7 +163,7 @@ def parse_SplitOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["num_splits"] = opt.NumSplits()
+    attrs['num_splits'] = opt.NumSplits()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -225,7 +172,6 @@ def parse_SplitOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
 
 def parse_SplitVOptions(_options: Any) -> dict[str, Any]:
     """Parse SplitVOptions attributes."""
@@ -235,7 +181,7 @@ def parse_SplitVOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["num_splits"] = opt.NumSplits()
+    attrs['num_splits'] = opt.NumSplits()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -244,7 +190,6 @@ def parse_SplitVOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
 
 def parse_SqueezeOptions(_options: Any) -> dict[str, Any]:
     """Parse SqueezeOptions attributes."""
@@ -254,7 +199,7 @@ def parse_SqueezeOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["squeeze_dims"] = opt.SqueezeDimsAsNumpy()
+    attrs['squeeze_dims'] = opt.SqueezeDimsAsNumpy()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -263,7 +208,6 @@ def parse_SqueezeOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
 
 def parse_StridedSliceOptions(_options: Any) -> dict[str, Any]:
     """Parse StridedSliceOptions attributes."""
@@ -273,12 +217,12 @@ def parse_StridedSliceOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["begin_mask"] = opt.BeginMask()
-    attrs["ellipsis_mask"] = opt.EllipsisMask()
-    attrs["end_mask"] = opt.EndMask()
-    attrs["new_axis_mask"] = opt.NewAxisMask()
-    attrs["offset"] = opt.Offset()
-    attrs["shrink_axis_mask"] = opt.ShrinkAxisMask()
+    attrs['begin_mask'] = opt.BeginMask()
+    attrs['ellipsis_mask'] = opt.EllipsisMask()
+    attrs['end_mask'] = opt.EndMask()
+    attrs['new_axis_mask'] = opt.NewAxisMask()
+    attrs['offset'] = opt.Offset()
+    attrs['shrink_axis_mask'] = opt.ShrinkAxisMask()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -287,17 +231,6 @@ def parse_StridedSliceOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
-
-def parse_TileOptions(_options: Any) -> dict[str, Any]:
-    """Parse TileOptions attributes."""
-    return {}
-
-
-def parse_TransposeOptions(_options: Any) -> dict[str, Any]:
-    """Parse TransposeOptions attributes."""
-    return {}
-
 
 def parse_UniqueOptions(_options: Any) -> dict[str, Any]:
     """Parse UniqueOptions attributes."""
@@ -307,7 +240,7 @@ def parse_UniqueOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["idx_out_type"] = opt.IdxOutType()
+    attrs['idx_out_type'] = opt.IdxOutType()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -316,7 +249,6 @@ def parse_UniqueOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
 
 def parse_UnpackOptions(_options: Any) -> dict[str, Any]:
     """Parse UnpackOptions attributes."""
@@ -326,8 +258,8 @@ def parse_UnpackOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["axis"] = opt.Axis()
-    attrs["num"] = opt.Num()
+    attrs['axis'] = opt.Axis()
+    attrs['num'] = opt.Num()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -336,8 +268,3 @@ def parse_UnpackOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
-
-def parse_ZerosLikeOptions(_options: Any) -> dict[str, Any]:
-    """Parse ZerosLikeOptions attributes."""
-    return {}

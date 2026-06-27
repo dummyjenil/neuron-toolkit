@@ -211,7 +211,7 @@ def test_tflite_all_options_parsing():
         mock_opt = mock_class.return_value
         mock_opt.StrideW.return_value = 2
         mock_opt.StrideH.return_value = 3
-        mock_opt.Padding.return_value = 1  # Padding.SAME
+        mock_opt.Padding.return_value = 1  # Padding.VALID
         mock_opt.FusedActivationFunction.return_value = 1  # RELU
         mock_opt.DilationHFactor.return_value = 4
         mock_opt.DilationWFactor.return_value = 5
@@ -220,8 +220,8 @@ def test_tflite_all_options_parsing():
         attrs = _get_tflite_attr(op_mock, "CONV_2D")
         assert attrs["stride_w"] == 2
         assert attrs["stride_h"] == 3
-        assert attrs["padding"] == 1
-        assert attrs["fused_activation_function"] == 1
+        assert attrs["padding"] == "VALID"
+        assert attrs["fused_activation_function"] == "RELU"
         assert attrs["dilation_h_factor"] == 4
         assert attrs["dilation_w_factor"] == 5
 
@@ -247,11 +247,17 @@ def test_tflite_all_options_parsing():
     op_mock.BuiltinOptionsType.return_value = tflite.BuiltinOptions.AddOptions
     with patch("tflite.AddOptions.AddOptions") as mock_class:
         mock_opt = mock_class.return_value
-        mock_opt.FusedActivationFunction.return_value = 1
+        mock_opt.FusedActivationFunction.return_value = 1  # RELU
         mock_opt.PotScaleInt16.return_value = 0
 
         attrs = _get_tflite_attr(op_mock, "ADD")
-        assert attrs["fused_activation_function"] == 1
+        assert attrs["fused_activation_function"] == "RELU"
         assert attrs["pot_scale_int16"] == 0
+
+    # 5. Test empty options class (should immediately return {})
+    op_mock.BuiltinOptionsType.return_value = tflite.BuiltinOptions.ZerosLikeOptions
+    attrs = _get_tflite_attr(op_mock, "ZEROS_LIKE")
+    assert attrs == {}
+
 
 

@@ -14,7 +14,7 @@ def parse_GeluOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["approximate"] = opt.Approximate()
+    attrs['approximate'] = opt.Approximate()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -23,12 +23,6 @@ def parse_GeluOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
-
-
-def parse_HardSwishOptions(_options: Any) -> dict[str, Any]:
-    """Parse HardSwishOptions attributes."""
-    return {}
-
 
 def parse_LeakyReluOptions(_options: Any) -> dict[str, Any]:
     """Parse LeakyReluOptions attributes."""
@@ -38,7 +32,7 @@ def parse_LeakyReluOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["alpha"] = opt.Alpha()
+    attrs['alpha'] = opt.Alpha()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -48,7 +42,6 @@ def parse_LeakyReluOptions(_options: Any) -> dict[str, Any]:
             attrs[k] = v.tolist()
     return attrs
 
-
 def parse_SoftmaxOptions(_options: Any) -> dict[str, Any]:
     """Parse SoftmaxOptions attributes."""
     from tflite.SoftmaxOptions import SoftmaxOptions
@@ -57,7 +50,7 @@ def parse_SoftmaxOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs["beta"] = opt.Beta()
+    attrs['beta'] = opt.Beta()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
