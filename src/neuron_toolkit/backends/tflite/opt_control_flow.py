@@ -14,7 +14,7 @@ def parse_CallOnceOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs['init_subgraph_index'] = opt.InitSubgraphIndex()
+    attrs["init_subgraph_index"] = opt.InitSubgraphIndex()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -23,6 +23,7 @@ def parse_CallOnceOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
+
 
 def parse_CallOptions(_options: Any) -> dict[str, Any]:
     """Parse CallOptions attributes."""
@@ -32,7 +33,7 @@ def parse_CallOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs['subgraph'] = opt.Subgraph()
+    attrs["subgraph"] = opt.Subgraph()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -41,6 +42,7 @@ def parse_CallOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
+
 
 def parse_IfOptions(_options: Any) -> dict[str, Any]:
     """Parse IfOptions attributes."""
@@ -50,8 +52,8 @@ def parse_IfOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs['else_subgraph_index'] = opt.ElseSubgraphIndex()
-    attrs['then_subgraph_index'] = opt.ThenSubgraphIndex()
+    attrs["else_subgraph_index"] = opt.ElseSubgraphIndex()
+    attrs["then_subgraph_index"] = opt.ThenSubgraphIndex()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -61,6 +63,7 @@ def parse_IfOptions(_options: Any) -> dict[str, Any]:
             attrs[k] = v.tolist()
     return attrs
 
+
 def parse_WhileOptions(_options: Any) -> dict[str, Any]:
     """Parse WhileOptions attributes."""
     from tflite.WhileOptions import WhileOptions
@@ -69,8 +72,8 @@ def parse_WhileOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs['body_subgraph_index'] = opt.BodySubgraphIndex()
-    attrs['cond_subgraph_index'] = opt.CondSubgraphIndex()
+    attrs["body_subgraph_index"] = opt.BodySubgraphIndex()
+    attrs["cond_subgraph_index"] = opt.CondSubgraphIndex()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):

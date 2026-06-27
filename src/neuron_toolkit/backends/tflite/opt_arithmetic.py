@@ -14,8 +14,8 @@ def parse_AddOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs['fused_activation_function'] = opt.FusedActivationFunction()
-    attrs['pot_scale_int16'] = opt.PotScaleInt16()
+    attrs["fused_activation_function"] = opt.FusedActivationFunction()
+    attrs["pot_scale_int16"] = opt.PotScaleInt16()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -24,6 +24,7 @@ def parse_AddOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
+
 
 def parse_DivOptions(_options: Any) -> dict[str, Any]:
     """Parse DivOptions attributes."""
@@ -33,7 +34,7 @@ def parse_DivOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs['fused_activation_function'] = opt.FusedActivationFunction()
+    attrs["fused_activation_function"] = opt.FusedActivationFunction()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -42,6 +43,7 @@ def parse_DivOptions(_options: Any) -> dict[str, Any]:
         elif hasattr(v, "tolist"):
             attrs[k] = v.tolist()
     return attrs
+
 
 def parse_MulOptions(_options: Any) -> dict[str, Any]:
     """Parse MulOptions attributes."""
@@ -51,7 +53,7 @@ def parse_MulOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs['fused_activation_function'] = opt.FusedActivationFunction()
+    attrs["fused_activation_function"] = opt.FusedActivationFunction()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
@@ -61,6 +63,7 @@ def parse_MulOptions(_options: Any) -> dict[str, Any]:
             attrs[k] = v.tolist()
     return attrs
 
+
 def parse_SubOptions(_options: Any) -> dict[str, Any]:
     """Parse SubOptions attributes."""
     from tflite.SubOptions import SubOptions
@@ -69,8 +72,8 @@ def parse_SubOptions(_options: Any) -> dict[str, Any]:
     opt.Init(_options.Bytes, _options.Pos)
 
     attrs: dict[str, Any] = {}
-    attrs['fused_activation_function'] = opt.FusedActivationFunction()
-    attrs['pot_scale_int16'] = opt.PotScaleInt16()
+    attrs["fused_activation_function"] = opt.FusedActivationFunction()
+    attrs["pot_scale_int16"] = opt.PotScaleInt16()
 
     # Normalize output types (e.g. bytes to str, numpy array to list)
     for k, v in list(attrs.items()):
