@@ -192,8 +192,10 @@ def test_tflite_extra_attributes():
 
 def test_tflite_all_options_parsing():
     from unittest.mock import MagicMock, patch
+
     import numpy as np
     import tflite
+
     from neuron_toolkit.backends.tflite.utils import _get_tflite_attr
 
     # Mock the options table returned by BuiltinOptions()
@@ -292,6 +294,7 @@ def test_tflite_rewriter_register_tensor(tflite_model_path, tmp_path):
 
     # Register a new tensor with constant data
     import numpy as np
+
     data = np.array([1.0, 2.0, 3.0], dtype=np.float32).tobytes()
     rw.register_tensor("my_const_tensor", [3], "float32", buffer_data=data)
 
@@ -308,7 +311,9 @@ def test_tflite_rewriter_register_tensor(tflite_model_path, tmp_path):
     assert "my_const_tensor" in new_parser.tensor_map
     val = new_parser.tensor_map["my_const_tensor"]
     assert val is not None
-    assert np.allclose(val.view(np.float32), [1.0, 2.0, 3.0])
+    assert val.dtype == np.float32
+    assert val.shape == (3,)
+    assert np.allclose(val, [1.0, 2.0, 3.0])
 
 
 def test_tflite_rewriter_options_serialization(tflite_model_path, tmp_path):
@@ -328,4 +333,37 @@ def test_tflite_rewriter_options_serialization(tflite_model_path, tmp_path):
     assert new_parser.nodes[0].attrs.get("new_shape") == [2, 5]
 
 
+def test_tflite_query_params(tflite_model_path, tmp_path):
+    parser = TFLiteParser(tflite_model_path)
+    rw = parser.rewriter()
+    node = parser.nodes[0]
 
+    # Register a new tensor with constant data
+    import numpy as np
+
+    data = np.array([1.0, 2.0, 3.0], dtype=np.float32).tobytes()
+    rw.register_tensor("my_const_tensor", [3], "float32", buffer_data=data)
+
+    # Connect it to the new op. The node will now have inputs: ["input", "my_const_tensor"]
+    # ("input" is a graph input, i.e., non-constant, and "my_const_tensor" is a constant)
+    rw.replace([node], "ADD", [node.input[0], "my_const_tensor"], node.output)
+
+    out_path = os.path.join(tmp_path, "query_params.tflite")
+    rw.build(out_path)
+
+    # Load and query
+    new_parser = TFLiteParser(out_path)
+    q = new_parser.find().op("ADD")
+
+    # Check that has_params() is correct
+    assert q.has_params().count() == 1
+
+    # Check query.tensor() contains ONLY "my_const_tensor" (no "input")
+    params = q.tensor()
+    assert isinstance(params, dict)
+    assert "my_const_tensor" in params
+    assert "input" not in params
+
+    # Check single_tensor
+    assert q.single_tensor.shape == (3,)
+    assert np.allclose(q.single_tensor, [1.0, 2.0, 3.0])

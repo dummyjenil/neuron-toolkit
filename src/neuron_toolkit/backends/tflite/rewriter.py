@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from collections.abc import Sequence
 from pathlib import Path
@@ -103,13 +104,54 @@ def _copy_quantization(builder: flatbuffers.Builder, q: Any) -> int:
         tflite.QuantizationParametersAddScale(builder, scale_vec)
     if zp_vec:
         tflite.QuantizationParametersAddZeroPoint(builder, zp_vec)
-    try:
+    with contextlib.suppress(AttributeError):
         tflite.QuantizationParametersAddQuantizedDimension(
             builder, q.QuantizedDimension()
         )
-    except AttributeError:
-        pass
     return tflite.QuantizationParametersEnd(builder)
+
+
+def _copy_flatbuffer_table(
+    builder: flatbuffers.Builder, tab: Any, vtable_cache: dict[bytes, int] | None = None
+) -> int:
+    """Copy an existing flatbuffers Table object into the new builder."""
+    if tab is None:
+        return 0
+    pos = tab.Pos
+    bytes_data = tab.Bytes
+    vtable_offset = flatbuffers.encode.Get(flatbuffers.packer.int32, bytes_data, pos)
+    vtable_pos = pos - vtable_offset
+    vtable_size = flatbuffers.encode.Get(
+        flatbuffers.packer.int16, bytes_data, vtable_pos
+    )
+    object_size = flatbuffers.encode.Get(
+        flatbuffers.packer.int16, bytes_data, vtable_pos + 2
+    )
+
+    builder.Prep(4, object_size)
+    body_bytes = bytearray(bytes_data[pos : pos + object_size])
+    for b in reversed(body_bytes):
+        builder.PrependByte(b)
+
+    if vtable_cache is None:
+        vtable_cache = {}
+
+    vtable_data = bytes(bytes_data[vtable_pos : vtable_pos + vtable_size])
+    if vtable_data in vtable_cache:
+        vtable_offset_in_builder = vtable_cache[vtable_data]
+    else:
+        builder.Prep(2, vtable_size)
+        for b in reversed(vtable_data):
+            builder.PrependByte(b)
+        vtable_offset_in_builder = builder.Head()
+        vtable_cache[vtable_data] = vtable_offset_in_builder
+
+    table_pos = builder.Head()
+    v_offset = vtable_offset_in_builder - table_pos
+    flatbuffers.encode.Write(
+        flatbuffers.packer.int32, builder.Bytes, table_pos, v_offset
+    )
+    return builder.Offset()
 
 
 def _copy_sparsity(builder: flatbuffers.Builder, s: Any) -> int:
@@ -264,10 +306,8 @@ def _copy_signature_def(
         tflite.SignatureDefAddOutputs(builder, outputs_vec)
     if key_offset:
         tflite.SignatureDefAddSignatureKey(builder, key_offset)
-    try:
+    with contextlib.suppress(AttributeError):
         tflite.SignatureDefAddSubgraphIndex(builder, sig.SubgraphIndex())
-    except AttributeError:
-        pass
     return tflite.SignatureDefEnd(builder)
 
 
@@ -284,10 +324,8 @@ def _copy_metadata(builder: flatbuffers.Builder, meta: Any) -> int:
     tflite.MetadataStart(builder)
     if name_offset:
         tflite.MetadataAddName(builder, name_offset)
-    try:
+    with contextlib.suppress(AttributeError):
         tflite.MetadataAddBuffer(builder, meta.Buffer())
-    except AttributeError:
-        pass
     return tflite.MetadataEnd(builder)
 
 
@@ -404,6 +442,7 @@ class TFLiteRewriter(BaseRewriter):
         self._to_insert: list[dict[str, Any]] = []  # new nodes to add
         self._new_tensors: dict[str, dict[str, Any]] = {}  # newly registered tensors
         self._new_buffers: list[bytes] = []  # buffers for newly registered tensors
+        self._vtable_cache: dict[bytes, int] = {}
 
     def replace(
         self,
@@ -657,6 +696,11 @@ class TFLiteRewriter(BaseRewriter):
             inputs = [op.Inputs(j) for j in range(op.InputsLength())]
             outputs = [op.Outputs(j) for j in range(op.OutputsLength())]
 
+            opts = op.BuiltinOptions()
+            opt_offset = (
+                _copy_flatbuffer_table(builder, opts, self._vtable_cache) if opts else 0
+            )
+
             all_ops.append(
                 {
                     "is_original": True,
@@ -666,7 +710,7 @@ class TFLiteRewriter(BaseRewriter):
                     "outputs": outputs,
                     "opcode_idx": op.OpcodeIndex(),
                     "opt_type": op.BuiltinOptionsType(),
-                    "opt_offset": op.BuiltinOptions(),
+                    "opt_offset": opt_offset,
                 }
             )
 
@@ -875,12 +919,19 @@ class TFLiteRewriter(BaseRewriter):
                 builder.PrependInt32(x)
             outputs_vec = builder.EndVector()
 
+            opts = op.BuiltinOptions()
+            opt_offset = (
+                _copy_flatbuffer_table(builder, opts, self._vtable_cache) if opts else 0
+            )
+
             tflite.OperatorStart(builder)
             tflite.OperatorAddOpcodeIndex(builder, op.OpcodeIndex())
             tflite.OperatorAddInputs(builder, inputs_vec)
             tflite.OperatorAddOutputs(builder, outputs_vec)
-            tflite.OperatorAddBuiltinOptionsType(builder, op.BuiltinOptionsType())
-            tflite.OperatorAddBuiltinOptions(builder, op.BuiltinOptions())
+            if op.BuiltinOptionsType():
+                tflite.OperatorAddBuiltinOptionsType(builder, op.BuiltinOptionsType())
+            if opt_offset:
+                tflite.OperatorAddBuiltinOptions(builder, opt_offset)
             op_offsets.append(tflite.OperatorEnd(builder))
 
         tflite.SubGraphStartOperatorsVector(builder, len(op_offsets))
@@ -913,7 +964,7 @@ class TFLiteRewriter(BaseRewriter):
         tflite.SubGraphAddName(builder, name_offset)
         return tflite.SubGraphEnd(builder)
 
-    def build(self, output_path: str | None = None) -> bytes:  # noqa: PLR0915
+    def build(self, output_path: str | None = None) -> bytes:
         """Apply staged edits and return modified model flatbuffer bytes."""
         if not TFLITE_AVAILABLE:
             msg = "flatbuffers or tflite package not found. Cannot perform build."
@@ -1056,7 +1107,7 @@ class TFLiteRewriter(BaseRewriter):
             tflite.ModelAddMetadataBuffer(builder, meta_buf_vec)
         model_offset = tflite.ModelEnd(builder)
 
-        builder.Finish(model_offset)
+        builder.Finish(model_offset, file_identifier=b"TFL3")
         output_data = bytes(builder.Output())
 
         result_path = output_path

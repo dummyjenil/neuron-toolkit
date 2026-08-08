@@ -104,7 +104,7 @@ class ActivationMixin:
     @classmethod
     def relu6(cls, x: Pattern) -> Pattern:
         """Create a ReLU6 pattern."""
-        from neuron_toolkit.pattern.dsl import Pattern, _coerce  # noqa: PLC0415
+        from neuron_toolkit.pattern.dsl import Pattern, _coerce
 
         return Pattern(
             "Clip",

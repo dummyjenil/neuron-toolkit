@@ -23,7 +23,7 @@ class MatchResult(BaseModel):
 
     def as_query(self) -> NeuronQuery:
         """Return the matched subgraph as an NeuronQuery."""
-        from neuron_toolkit.query import NeuronQuery  # noqa: PLC0415
+        from neuron_toolkit.query import NeuronQuery
 
         return NeuronQuery(list(self.nodes), self.tensor_map, list(self.nodes))
 

@@ -37,7 +37,7 @@ def _init_opt_mappings() -> None:
     if _OPT_TYPE_TO_CLASS:
         return
     try:
-        import tflite  # noqa: PLC0415
+        import tflite
 
         if hasattr(tflite, "BuiltinOptions"):
             for name in dir(tflite.BuiltinOptions):
@@ -365,7 +365,7 @@ def _get_tflite_attr(op: Any, op_type: str) -> dict[str, object]:
                     attrs[k] = [_get_enum_string(enum_class, x) for x in v]
                 else:
                     attrs[k] = _get_enum_string(enum_class, v)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.debug(
             "Failed to extract attributes for %s (class: %s, category: %s): %s",
             op_type,

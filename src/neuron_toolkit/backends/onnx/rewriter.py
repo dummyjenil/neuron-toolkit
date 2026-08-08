@@ -29,6 +29,7 @@ class ONNXRewriter(BaseRewriter):
         self._parser = parser
         self._to_remove_ids: set[int] = set()  # node object IDs to drop
         self._to_insert: list[NodeProto] = []  # new nodes to add
+        self._new_initializers: dict[str, onnx.TensorProto] = {}  # new constants
 
     # ------------------------------------------------------------------
     # Edit API
@@ -135,6 +136,17 @@ class ONNXRewriter(BaseRewriter):
         """Discard all pending edits."""
         self._to_remove_ids.clear()
         self._to_insert.clear()
+        self._new_initializers.clear()
+        return self
+
+    def register_initializer(self, name: str, value: Any) -> ONNXRewriter:
+        """Register a new constant tensor that will be added to the rewritten graph.
+
+        Useful for passes that need to inject folded weights/bias tensors.
+        """
+        from onnx import numpy_helper
+
+        self._new_initializers[name] = numpy_helper.from_array(value, name=name)
         return self
 
     # ------------------------------------------------------------------
@@ -190,11 +202,13 @@ class ONNXRewriter(BaseRewriter):
             name=orig_graph.name or "rewritten",
             inputs=list(orig_graph.input),
             outputs=list(orig_graph.output),
-            initializer=list(orig_graph.initializer),
+            initializer=list(orig_graph.initializer)
+            + list(self._new_initializers.values()),
         )
 
         new_model = helper.make_model(new_graph)
         new_model.ir_version = self._parser.model.ir_version
+        del new_model.opset_import[:]
         new_model.opset_import.extend(self._parser.model.opset_import)
 
         # Copy other metadata
@@ -210,7 +224,12 @@ class ONNXRewriter(BaseRewriter):
 
         try:
             new_model = onnx.shape_inference.infer_shapes(new_model)
-        except (ValueError, TypeError, RuntimeError) as exc:
+        except (
+            ValueError,
+            TypeError,
+            RuntimeError,
+            onnx.shape_inference.InferenceError,
+        ) as exc:
             log.warning("Shape inference failed after rewrite: %s", exc)
 
         if output_path:

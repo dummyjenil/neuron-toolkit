@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import ItemsView, Iterator, KeysView, Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 import onnx
@@ -56,6 +56,15 @@ class LazyTensorMap(dict[str, "np.ndarray"]):
     def __len__(self) -> int:
         return len(self._initializers)
 
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._initializers)
+
+    def keys(self) -> KeysView[str]:
+        return self._initializers.keys()
+
+    def items(self) -> ItemsView[str, np.ndarray]:
+        return {k: self[k] for k in self._initializers}.items()
+
 
 class ONNXParser(BaseParser):
     """Load an ONNX model and expose it for querying and pattern matching."""
@@ -80,7 +89,7 @@ class ONNXParser(BaseParser):
             try:
                 self.model = onnx.shape_inference.infer_shapes(self.model)
                 log.debug("Shape inference completed.")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 log.warning("Shape inference failed: %s", exc)
 
         self.nodes: list[NodeProto] = list(self.model.graph.node)
@@ -120,7 +129,7 @@ class ONNXParser(BaseParser):
         end_node: object | None = None,
     ) -> MatchResult | None:
         """Create a PatternDetector bound to this model and call match()."""
-        from neuron_toolkit.pattern import PatternDetector  # noqa: PLC0415
+        from neuron_toolkit.pattern import PatternDetector
 
         shim = _GraphShim(self.nodes, self.tensor_map, self.shape_info, backend=self)
         det = PatternDetector(shim, start_node=start_node, end_node=end_node)
@@ -128,13 +137,13 @@ class ONNXParser(BaseParser):
 
     def rewriter(self) -> BaseRewriter:
         """Return a rewriter bound to this model."""
-        from neuron_toolkit.backends.onnx.rewriter import ONNXRewriter  # noqa: PLC0415
+        from neuron_toolkit.backends.onnx.rewriter import ONNXRewriter
 
         return ONNXRewriter(self)
 
     def get_node_attrs(self, node: object) -> dict[str, object]:
         """Extract attributes from an ONNX node."""
-        from neuron_toolkit.backends.onnx.utils import _node_attrs  # noqa: PLC0415
+        from neuron_toolkit.backends.onnx.utils import _node_attrs
 
         return _node_attrs(cast(NodeProto, node))
 
@@ -144,7 +153,7 @@ class ONNXParser(BaseParser):
 
     def get_constant_value(self, node: object) -> object | None:
         """Extract value from ONNX Constant node."""
-        from onnx import numpy_helper  # noqa: PLC0415
+        from onnx import numpy_helper
 
         for attr in getattr(node, "attribute", []):
             if attr.name == "value":
@@ -166,3 +175,56 @@ class ONNXParser(BaseParser):
         for op, cnt in op_counts.most_common():
             lines.append(f"    {op:<24} {cnt:>5}")
         return "\n".join(lines)
+
+    def slice(
+        self,
+        start_points: list[str | object] | str | object,
+        end_points: list[str | object] | str | object,
+        output_path: str | None = None,
+    ) -> ONNXParser:
+        """Slice the ONNX model between start and end points and return a new ONNXParser."""
+        import os
+        import tempfile
+
+        import onnx
+        import onnx.utils
+
+        from neuron_toolkit._utils import trace_subgraph_boundaries
+
+        # 1. Trace boundaries to find inputs and outputs tensor names
+        _, inputs, outputs = trace_subgraph_boundaries(
+            self.nodes, self.tensor_map, start_points, end_points, self.graph_outputs
+        )
+
+        # 2. Extract using onnx.utils.extract_model via a temporary file
+        temp_dir = tempfile.mkdtemp(prefix="neuron_toolkit_slice_")
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".onnx", dir=temp_dir, delete=False
+        ) as f_in:
+            in_path = f_in.name
+        with tempfile.NamedTemporaryFile(
+            suffix=".onnx", dir=temp_dir, delete=False
+        ) as f_out:
+            out_path = f_out.name
+
+        try:
+            onnx.save(self.model, in_path)
+            onnx.utils.extract_model(
+                input_path=in_path,
+                output_path=out_path,
+                input_names=inputs,
+                output_names=outputs,
+                check_model=True,
+                infer_shapes=True,
+            )
+            extracted_model = onnx.load(out_path)
+
+            if output_path:
+                onnx.save(extracted_model, output_path)
+
+            return ONNXParser(extracted_model)
+        finally:
+            for p in (in_path, out_path):
+                if os.path.exists(p):
+                    os.remove(p)

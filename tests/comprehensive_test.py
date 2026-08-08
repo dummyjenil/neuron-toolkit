@@ -5,10 +5,8 @@ a correctness verification and a practical guide/tutorial for developers.
 """
 
 import os
-import numpy as np
-import pytest
 
-from neuron_toolkit import NeuronGraph, Pattern, NeuronRewriter
+from neuron_toolkit import NeuronGraph, NeuronRewriter, Pattern
 
 
 def test_neuron_graph_basics(simple_model):

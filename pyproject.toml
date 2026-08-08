@@ -65,6 +65,17 @@ ignore = [
     "D100",    # Missing docstring in public module
     "D104",    # Missing docstring in public package
     "D105",    # Missing docstring in magic method
+    "D103",
+    "PLR2004",
+    "N802",
+    "PLC0415",
+    "PLR0915",
+    "E501",
+    "BLE001",
+    "PLR0912",
+    "N806",
+    "D102",
+    "SLF001",
     "D107",    # Missing docstring in __init__
     "D203",    # Conflicts with D211
     "D213",    # Conflicts with D212

@@ -36,7 +36,7 @@ class PatternDetector(MatchingMixin):
         elif hasattr(model, "graph") and hasattr(
             model.graph, "node"
         ):  # ONNX ModelProto
-            from neuron_toolkit.backends.onnx.parser import ONNXParser  # noqa: PLC0415
+            from neuron_toolkit.backends.onnx.parser import ONNXParser
 
             self._backend = ONNXParser(cast(Any, model), **kwargs)
             self._nodes = self._backend.nodes
@@ -45,7 +45,7 @@ class PatternDetector(MatchingMixin):
         elif hasattr(model, "Subgraphs") and hasattr(
             model, "OperatorCodes"
         ):  # TFLite Model
-            from neuron_toolkit.backends.tflite.parser import (  # noqa: PLC0415
+            from neuron_toolkit.backends.tflite.parser import (
                 TFLiteParser,
             )
 

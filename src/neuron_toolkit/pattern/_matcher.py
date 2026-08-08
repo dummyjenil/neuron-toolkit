@@ -248,7 +248,7 @@ class MatchingMixin:
             return False
 
         # Limit permutations to avoid explosion
-        if len(actual_parents) > 8:  # noqa: PLR2004
+        if len(actual_parents) > 8:
             log.warning("Too many parents for commutative match, limiting search")
             actual_parents = actual_parents[:8]
 
@@ -349,23 +349,11 @@ class MatchingMixin:
                 and backend
                 and hasattr(backend, "is_constant_node")
                 and hasattr(backend, "get_constant_value")
-            ):
-                if cast(Any, backend).is_constant_node(parent):
-                    val = cast(Any, backend).get_constant_value(parent)
-                    print(
-                        f"DEBUG: Found constant parent {getattr(parent, 'name', '')} "
-                        f"with value {val}"
-                    )
-                    if val is not None and np.allclose(
-                        val, cast(Any, value), atol=1e-3
-                    ):
-                        used.add(inp)
-                        return True
-            else:
-                print(
-                    f"DEBUG: No constant parent found for input {inp} "
-                    f"(parent={parent}, backend={backend})"
-                )
+            ) and cast(Any, backend).is_constant_node(parent):
+                val = cast(Any, backend).get_constant_value(parent)
+                if val is not None and np.allclose(val, cast(Any, value), atol=1e-3):
+                    used.add(inp)
+                    return True
         except (ValueError, TypeError, AttributeError):
             pass
         return False
@@ -380,7 +368,7 @@ class MatchingMixin:
             attrs = cast(Any, backend).get_node_attrs(node)
         else:
             # Fallback to generic extractor if no backend (e.g. shim)
-            from neuron_toolkit.query.core import _get_node_attrs  # noqa: PLC0415
+            from neuron_toolkit.query.core import _get_node_attrs
 
             attrs = _get_node_attrs(node)
 

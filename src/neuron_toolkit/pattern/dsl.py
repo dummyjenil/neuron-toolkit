@@ -163,7 +163,7 @@ class Pattern(ActivationMixin):
 
     def find(self, target: NeuronGraph | NeuronQuery) -> MatchResult | None:
         """Find the first match of this pattern in the target graph."""
-        from neuron_toolkit.graph import NeuronGraph  # noqa: PLC0415
+        from neuron_toolkit.graph import NeuronGraph
 
         if isinstance(target, NeuronGraph):
             return target.match(self)
@@ -172,7 +172,7 @@ class Pattern(ActivationMixin):
 
     def findall(self, target: NeuronGraph | NeuronQuery) -> list[MatchResult]:
         """Find all matches of this pattern in the target."""
-        from neuron_toolkit.graph import NeuronGraph  # noqa: PLC0415
+        from neuron_toolkit.graph import NeuronGraph
 
         if isinstance(target, NeuronGraph):
             return target.findall(self)
@@ -180,7 +180,7 @@ class Pattern(ActivationMixin):
 
     def filter(self, target: NeuronGraph | NeuronQuery) -> NeuronQuery:
         """Filter the target graph/query to nodes that match this pattern."""
-        from neuron_toolkit.graph import NeuronGraph  # noqa: PLC0415
+        from neuron_toolkit.graph import NeuronGraph
 
         if isinstance(target, NeuronGraph):
             return target.query().matches(self)

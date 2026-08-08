@@ -35,7 +35,7 @@ def _get_node_attrs(
 
     # Fallback for ONNX (NodeProto has .attribute)
     if hasattr(node, "attribute"):
-        from neuron_toolkit.backends.onnx.utils import _node_attrs  # noqa: PLC0415
+        from neuron_toolkit.backends.onnx.utils import _node_attrs
 
         return _node_attrs(cast(Any, node))
 
@@ -318,7 +318,7 @@ class NeuronQuery:
 
     def matches(self, pattern: Pattern) -> NeuronQuery:
         """Return nodes that are the start of a match for *pattern*."""
-        from neuron_toolkit.pattern import PatternDetector  # noqa: PLC0415
+        from neuron_toolkit.pattern import PatternDetector
 
         shim = _GraphShim(self.all_nodes, self.tensor_map, self.shape_info)
         matched = []
@@ -334,7 +334,7 @@ class NeuronQuery:
 
         Returns the root nodes of matches that incorporate the current nodes.
         """
-        from neuron_toolkit.pattern import PatternDetector  # noqa: PLC0415
+        from neuron_toolkit.pattern import PatternDetector
 
         shim = _GraphShim(self.all_nodes, self.tensor_map, self.shape_info)
         results = []
@@ -353,7 +353,7 @@ class NeuronQuery:
 
     def match_results(self, pattern: Pattern) -> list[MatchResult]:
         """Return all MatchResult objects for matches starting at these nodes."""
-        from neuron_toolkit.pattern import PatternDetector  # noqa: PLC0415
+        from neuron_toolkit.pattern import PatternDetector
 
         shim = _GraphShim(self.all_nodes, self.tensor_map, self.shape_info)
         results = []
@@ -395,7 +395,7 @@ class NeuronQuery:
 
     def to_pattern(self) -> Pattern:
         """Convert the first node of this query into a reusable Pattern."""
-        from neuron_toolkit.pattern import Pattern  # noqa: PLC0415
+        from neuron_toolkit.pattern import Pattern
 
         if not self.nodes:
             msg = "Cannot convert empty query to pattern"

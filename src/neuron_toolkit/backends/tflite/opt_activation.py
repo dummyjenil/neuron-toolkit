@@ -1,5 +1,4 @@
 """TFLite options parser for activation operations."""
-# ruff: noqa: PLC0415, N802
 
 from __future__ import annotations
 
