@@ -1,0 +1,140 @@
+================================================================================
+NEURON-TOOLKIT FEATURE INVENTORY & MEMORY NOTES (notes.txt)
+================================================================================
+
+1. CORE ARCHITECTURE & UNIFIED GRAPH INTERFACE (`NeuronGraph`)
+--------------------------------------------------------------------------------
+- Unified entry point for ONNX and TFLite models.
+- Model loading modes:
+  * File paths (.onnx, .tflite, .bin)
+  * Raw bytes with flatbuffer magic detection (b"TFL3" for TFLite, ONNX ModelProto fallback)
+  * Pre-parsed objects (ONNX ModelProto, TFLite Model object, or backend parser instances)
+  * Auto-detection in `NeuronGraph(source)` or explicit via `NeuronGraph.load(path)`
+- Core properties exposed:
+  * `.nodes`: List of graph operator nodes
+  * `.tensor_map`: Initializer / weight tensor map (lazy-loaded numpy arrays)
+  * `.shape_info`: Dictionary mapping tensor names to (rank, dtype_str) tuples
+  * `.passes`: GraphPasses namespace for optimization passes
+- Serialization & Model Export:
+  * `.save(path)`: Exports modified/loaded model back to file (.onnx or .tflite bytes/file)
+  * `.get_weights()`: Dict of parameter weight tensors
+
+2. FLUENT QUERY ENGINE (`NeuronQuery`)
+--------------------------------------------------------------------------------
+- Primary entry point via `graph.query()` or `backend.find()`
+- Filtering methods:
+  * `.find_by_op_type(op_type)` / `.op(op_type)`: Filter by operator type (e.g. "Conv", "Add")
+  * `.find_by_name(name, exact=False)` / `.name(name)`: Substring or exact node name filter
+  * `.find_by_attribute(name, value=None)` / `.attr(name, value)`: Attribute filter (supports predicates & numpy equality)
+  * `.find_by_tensor(name)`: Find nodes consuming or producing a tensor
+  * `.find_by_param_name(name, exact=False)`: Find nodes bound to specific weight/parameter tensors
+  * `.rank(rank)`: Filter nodes by output tensor rank
+  * `.dtype(dtype)`: Filter nodes by output tensor data type
+  * `.filter(predicate)`: Custom lambda predicate filtering
+  * `.has_params()`: Filter nodes that possess weight/parameter tensors
+- Graph Traversal API:
+  * `.children()` / `.outputs()`: Direct downstream successor nodes
+  * `.parents()` / `.inputs()`: Direct upstream predecessor nodes
+  * `.descendants(max_depth=100)`: All downstream nodes reachable via BFS traversal
+  * `.ancestors(max_depth=100)`: All upstream nodes reachable via BFS traversal
+  * `.entry_nodes`: Graph input consumer nodes
+  * `.output_nodes`: Graph output producer nodes
+- Set Operations (Operator Overloads & Methods):
+  * Union (`|`, `.union(other)`): Combine node selections without duplicates
+  * Intersection (`&`, `.intersection(other)`): Nodes present in both queries
+  * Difference (`-`, `.difference(other)`): Nodes in self but not in other
+- Topological Analysis & Utilities:
+  * `.topological_sort()`: Re-order query nodes in global topological execution order
+  * `.is_topologically_sorted()`: Boolean check for topological ordering
+  * `.apply(fn)`: Execute callback on each node and its parameters
+  * `.tensor(name=None)` / `.single_tensor`: Retrieve parameter array(s)
+  * `.count()`, `.is_empty()`, `.op_types()`, `.first()`, `.last()`, `.single_node`
+- Pattern Matching & Rewriting Integration:
+  * `.matches(pattern)` / `.where(pattern)`: Filter nodes matching a pattern root
+  * `.follow(pattern)`: Match forward and return root nodes incorporating current nodes
+  * `.select(pattern)` / `.match_results(pattern)`: Return MatchResult objects
+  * `.replace(pattern, new_op, ...)`: Direct pattern replacement query shortcut
+  * `.to_pattern()`: Convert first node of query into a reusable Pattern object
+
+3. SYMBOLIC PATTERN MATCHING DSL (`Pattern`, `PatternDetector`, `MatchResult`)
+--------------------------------------------------------------------------------
+- Pattern creation factory methods:
+  * `Pattern.op("OpType", *input_patterns)`: Operator pattern matching
+  * `Pattern.any()`: Wildcard matching any single operator/node
+  * `Pattern.const(value)`: Matches initializers/constants with explicit values
+  * `Pattern.any_of(*alternatives)`: Matches any of multiple alternative pattern branches
+- Pattern constraints & captures:
+  * `.capture("name")`: Name binding for extracted node reference in `MatchResult.bindings`
+  * `.where(**constraints)`: Attribute constraints on node attributes
+  * `.with_output_rank(rank)`: Constrain node output tensor rank
+  * `.with_dtype(dtype)`: Constrain node output tensor data type
+  * `.then(op_type_or_pattern)`: Chain pattern forward where output feeds next op
+- Arithmetic DSL Overloads for concise expression:
+  * Addition (`+`, `radd`), Subtraction (`-`, `rsub`), Multiplication (`*`, `rmul`), Division (`/`, `rtruediv`), Power (`**`), Negation (`-p`)
+- Built-in Activation Mixin Constructors (`ActivationMixin`):
+  * `relu`, `sigmoid`, `tanh`, `leaky_relu`, `elu`, `selu`, `softplus`, `softsign`, `hardsigmoid`, `hardswish`, `silu`, `swish`, `gelu`, `gelu_tanh`, `mish`, `relu6`, `softmax`, `log_softmax`, `prelu`, `thresholded_relu`
+- Subgraph Search Engine (`PatternDetector`):
+  * Recursive depth-first search with backtracking
+  * Automatic handling of commutative operators (Add, Mul) via permutation matching
+  * Support for start_node and end_node bounded subgraph detection
+  * Referential consistency checking via memoization map
+- Match Output (`MatchResult`):
+  * `.start`: Root matched node
+  * `.end`: Terminal matched node
+  * `.nodes`: List of all nodes contained in the matched subgraph
+  * `.bindings`: Dict of captured node names to actual graph nodes
+  * `.as_query()` / `.query` / `.subgraph`: Expose matched subgraph as a `NeuronQuery`
+
+4. STAGED GRAPH REWRITING ENGINE (`NeuronRewriter`)
+--------------------------------------------------------------------------------
+- Staged mutation engine avoiding invalidation during graph traversal
+- Mutation methods:
+  * `.replace(nodes, new_op, inputs, outputs, name, **attrs)`: Replace nodes with new op
+  * `.replace_from_result(result, new_op, ...)`: Replace matched `MatchResult` subgraph with smart boundary input/output resolution
+  * `.delete(nodes)`: Remove nodes from graph
+  * `.insert_before(target_node, new_op, inputs, outputs, ...)`: Inject new node before target
+  * `.register_initializer(name, value)`: Inject new constant/weight tensor array into graph
+  * `.reset()`: Clear staged pending modifications
+  * `.build(output_path=None)`: Execute staged edits, rebuild model, return modified model object
+
+5. BACKENDS (ONNX & TFLITE)
+--------------------------------------------------------------------------------
+- ONNX Backend (`ONNXParser`, `ONNXRewriter`, `LazyTensorMap`):
+  * Parse ModelProto, string paths, or serialized bytes
+  * Automatic ONNX shape inference (`onnx.shape_inference.infer_shapes`)
+  * Attributes extraction & type conversion (`_node_attrs`)
+  * Subgraph extraction via `onnx.utils.extract_model`
+  * Staged node replacement and initializer registration
+- TFLite Backend (`TFLiteParser`, `TFLiteRewriter`, `LazyTensorMap`):
+  * Parse Flatbuffer (.tflite, .bin) files, bytes, or parsed tflite.Model
+  * `LazyTensorMap`: Memory-efficient lazy loading of flatbuffer weight buffer data into NumPy arrays
+  * Extraction of `quantization_info` (min, max, scale, zero_point, quantized_dimension)
+  * Extraction of `sparsity_info`
+  * TFLite node abstraction (`TFLiteNode`) mapping flatbuffer operators to unified schema
+  * Comprehensive flatbuffer rewriter rebuilding subgraphs, opcode tables, tensor indices, buffers, quantization, and sparsity tables
+  * Specialized option parsers for activation, arithmetic, control flow, NN, reduction, StableHLO, tensor operations
+
+6. MODEL SLICING & PYTORCH CROSS-VERIFICATION
+--------------------------------------------------------------------------------
+- Graph Slicing (`graph.slice(start_points, end_points, output_path=None)`):
+  * Uses `networkx` directed graph reachability tracing to find all operators lying on any path from `start_points` to `end_points`
+  * Automatically isolates boundary inputs (consumed but not produced within slice) and boundary outputs
+  * Extracts runnable stand-alone ONNX / TFLite sliced models
+  * `graph.slice_node(node)`: Extract single-node sliced submodel
+- PyTorch Output Comparison (`graph.compare_outputs(...)`):
+  * Runs PyTorch Module/function on numpy inputs and compares against sliced submodel runtime execution (using `onnxruntime` or `ai_edge_litert`)
+  * Dynamic argument matching by parameter name & positional fallback
+  * Comprehensive metrics report per output tensor:
+    - MAE (Mean Absolute Error)
+    - MSE (Mean Squared Error)
+    - Cosine Similarity
+    - All-close check (`np.allclose`) with configurable `rtol` and `atol`
+    - Shape match validation
+- Decorator Verification (`@graph.verify_against_pytorch(start_points, end_points, ...)`):
+  * Wraps PyTorch functions/modules to automatically execute sliced model verification during standard function invocation, storing `.similarity_report` on wrapper
+
+7. GRAPH OPTIMIZATION PASSES (`GraphPasses`)
+--------------------------------------------------------------------------------
+- Accessible via `graph.passes`
+- Built-in passes:
+  * `fuse_conv_bn()`: Fuses Conv + BatchNormalization into a single Conv operator, folding scale, shift, mean, variance, and epsilon into Conv weight and bias tensors.
