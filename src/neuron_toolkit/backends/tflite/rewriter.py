@@ -129,9 +129,9 @@ def _copy_flatbuffer_table(
     )
 
     builder.Prep(4, object_size)
-    body_bytes = bytearray(bytes_data[pos : pos + object_size])
-    for b in reversed(body_bytes):
-        builder.PrependByte(b)
+    body_bytes = bytes_data[pos : pos + object_size]
+    builder.head -= object_size
+    builder.Bytes[builder.head : builder.head + object_size] = body_bytes
 
     if vtable_cache is None:
         vtable_cache = {}
@@ -141,8 +141,8 @@ def _copy_flatbuffer_table(
         vtable_offset_in_builder = vtable_cache[vtable_data]
     else:
         builder.Prep(2, vtable_size)
-        for b in reversed(vtable_data):
-            builder.PrependByte(b)
+        builder.head -= vtable_size
+        builder.Bytes[builder.head : builder.head + vtable_size] = vtable_data
         vtable_offset_in_builder = builder.Head()
         vtable_cache[vtable_data] = vtable_offset_in_builder
 

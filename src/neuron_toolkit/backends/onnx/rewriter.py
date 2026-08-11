@@ -170,6 +170,10 @@ class ONNXRewriter(BaseRewriter):
         # We use a DiGraph to represent dependencies
         g = nx.DiGraph()
 
+        producer_map: dict[str, int] = {
+            out: j for j, p in enumerate(all_nodes) for out in p.output if out
+        }
+
         for i, n in enumerate(all_nodes):
             # Use unique node ID (index) to handle unnamed nodes
             node_id = f"node_{i}"
@@ -177,13 +181,8 @@ class ONNXRewriter(BaseRewriter):
             for inp in n.input:
                 if not inp:
                     continue
-                # Find which node produces this input
-                producer_idx = -1
-                for j, p in enumerate(all_nodes):
-                    if inp in p.output:
-                        producer_idx = j
-                        break
-                if producer_idx != -1:
+                producer_idx = producer_map.get(inp, -1)
+                if producer_idx != -1 and producer_idx != i:
                     g.add_edge(f"node_{producer_idx}", node_id)
 
         try:

@@ -71,11 +71,10 @@ def trace_subgraph_boundaries(
                 g.add_node(out, type="tensor")
                 g.add_edge(idx, out)
 
+    node_to_idx = {id(n): i for i, n in enumerate(nodes)}
+
     def find_node_idx(n: object) -> int | None:
-        for idx, node in enumerate(nodes):
-            if node == n:
-                return idx
-        return None
+        return node_to_idx.get(id(n))
 
     def resolve_point(pt: object) -> object:
         if isinstance(pt, str):

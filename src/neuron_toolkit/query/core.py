@@ -82,22 +82,74 @@ class NeuronQuery:
     def _nx_graph(self) -> nx.DiGraph:
         g = nx.DiGraph()
         for n in self.all_nodes:
-            name = getattr(n, "name", "")
+            name = getattr(n, "name", "") or f"node_{id(n)}"
             g.add_node(name, proto=n)
             node_inputs = getattr(n, "input", [])
             for inp in node_inputs:
                 if parent := self.output_map.get(inp):
-                    parent_name = getattr(parent, "name", "")
+                    parent_name = getattr(parent, "name", "") or f"node_{id(parent)}"
                     g.add_edge(parent_name, name, tensor=inp)
         return g
 
     @cached_property
+    def _rx_graph(self) -> tuple[Any, dict[int, int], dict[str, int]]:
+        """Native Rust-backed PyDiGraph for ultra-fast traversals."""
+        try:
+            import rustworkx as rx
+
+            g = rx.PyDiGraph()
+            id_to_rx: dict[int, int] = {}
+            name_to_rx: dict[str, int] = {}
+            for n in self.all_nodes:
+                idx = g.add_node(n)
+                id_to_rx[id(n)] = idx
+                if name := getattr(n, "name", ""):
+                    name_to_rx[name] = idx
+
+            for n in self.all_nodes:
+                curr_idx = id_to_rx[id(n)]
+                for inp in getattr(n, "input", []):
+                    if parent := self.output_map.get(inp):
+                        p_idx = id_to_rx[id(parent)]
+                        g.add_edge(p_idx, curr_idx, inp)
+            return g, id_to_rx, name_to_rx
+        except Exception:
+            return None, {}, {}
+
+    @cached_property
     def _node_to_idx(self) -> dict[str, int]:
         """Global topological index of each node in the full graph."""
+        g, _, _ = self._rx_graph
+        if g is not None:
+            try:
+                import rustworkx as rx
+
+                topo_order = rx.topological_sort(g)
+                return {
+                    getattr(g[i], "name", f"node_{i}"): rank
+                    for rank, i in enumerate(topo_order)
+                }
+            except Exception:
+                pass
+
         try:
-            order = list(nx.topological_sort(self._nx_graph))
+            from graphlib import TopologicalSorter
+
+            dep_map: dict[str, set[str]] = {}
+            for n in self.all_nodes:
+                name = getattr(n, "name", "") or f"node_{id(n)}"
+                inputs = getattr(n, "input", [])
+                parents = {
+                    getattr(p, "name", "") or f"node_{id(p)}"
+                    for inp in inputs
+                    if (p := self.output_map.get(inp))
+                }
+                dep_map[name] = parents
+
+            ts = TopologicalSorter(dep_map)
+            order = list(ts.static_order())
             return {name: i for i, name in enumerate(order)}
-        except nx.NetworkXCyclicError:
+        except Exception:
             # Fallback to original order if cycles exist
             return {
                 getattr(n, "name", f"node_{i}"): i for i, n in enumerate(self.all_nodes)
@@ -114,7 +166,7 @@ class NeuronQuery:
             backend=self._backend,
         )
         # Share expensive graph caches
-        for attr in ("output_map", "_nx_graph", "_node_to_idx"):
+        for attr in ("output_map", "_nx_graph", "_node_to_idx", "_rx_graph"):
             if attr in self.__dict__:
                 new.__dict__[attr] = self.__dict__[attr]
         return new
@@ -219,9 +271,37 @@ class NeuronQuery:
     # --- Traversal ---
 
     def _traverse(self, method: str, max_depth: int = 100) -> NeuronQuery:
-        g = self._nx_graph
         if not self.nodes:
             return self._clone([])
+
+        rx_g, id_to_rx, _ = self._rx_graph
+        if rx_g is not None:
+            import rustworkx as rx
+
+            source_indices = [id_to_rx[id(n)] for n in self.nodes if id(n) in id_to_rx]
+            if method == "successors":
+                target_indices = {
+                    s for idx in source_indices for s in rx_g.successor_indices(idx)
+                }
+            elif method == "predecessors":
+                target_indices = {
+                    p for idx in source_indices for p in rx_g.predecessor_indices(idx)
+                }
+            elif method == "ancestors":
+                target_indices = {
+                    a for idx in source_indices for a in rx.ancestors(rx_g, idx)
+                }
+            elif method == "descendants":
+                target_indices = {
+                    d for idx in source_indices for d in rx.descendants(rx_g, idx)
+                }
+            else:
+                target_indices = set()
+
+            target_indices -= set(source_indices)
+            return self._clone([rx_g[i] for i in target_indices])
+
+        g = self._nx_graph
 
         if method == "successors":
             targets = {

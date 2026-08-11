@@ -163,16 +163,24 @@ class TFLiteParser(BaseParser):
         # Build lazy tensor map
         self.tensor_map = LazyTensorMap(model, subgraph)
 
-        # Map every tensor name (constant and intermediate) to its subgraph index
-        self._tensor_to_idx = {
-            subgraph.Tensors(i).Name().decode("utf-8"): i
+        # Pre-decode tensor names once to avoid repeated FlatBuffer indexing & UTF-8 decoding
+        tensor_names = [
+            subgraph.Tensors(i).Name().decode("utf-8")
             for i in range(subgraph.TensorsLength())
-        }
+        ]
+        self._tensor_to_idx = {name: i for i, name in enumerate(tensor_names)}
 
         # Build shape info
         self.shape_info = _build_shape_info(
             model, subgraph, self.quantization_info, self.sparsity_info
         )
+
+        # Pre-build builtin operator code map for O(1) opcode resolution
+        builtin_op_map = {
+            v: k
+            for k, v in tflite.BuiltinOperator.__dict__.items()
+            if isinstance(v, int) and not k.startswith("__")
+        }
 
         # Build nodes
         for i in range(subgraph.OperatorsLength()):
@@ -184,11 +192,7 @@ class TFLiteParser(BaseParser):
             builtin_code = opcode.BuiltinCode()
 
             if builtin_code != tflite.BuiltinOperator.CUSTOM:
-                op_type = next(
-                    k
-                    for k, v in tflite.BuiltinOperator.__dict__.items()
-                    if v == builtin_code and not k.startswith("__")
-                )
+                op_type = builtin_op_map.get(builtin_code, "UNKNOWN")
             else:
                 op_type = opcode.CustomCode().decode("utf-8")
 
@@ -196,14 +200,14 @@ class TFLiteParser(BaseParser):
             inputs = []
             for j in range(op.InputsLength()):
                 t_idx = op.Inputs(j)
-                if t_idx != -1:
-                    inputs.append(subgraph.Tensors(t_idx).Name().decode("utf-8"))
+                if t_idx != -1 and t_idx < len(tensor_names):
+                    inputs.append(tensor_names[t_idx])
 
             outputs = []
             for j in range(op.OutputsLength()):
                 t_idx = op.Outputs(j)
-                if t_idx != -1:
-                    outputs.append(subgraph.Tensors(t_idx).Name().decode("utf-8"))
+                if t_idx != -1 and t_idx < len(tensor_names):
+                    outputs.append(tensor_names[t_idx])
 
             # Attributes
             attrs = _get_tflite_attr(op, op_type)
@@ -221,13 +225,13 @@ class TFLiteParser(BaseParser):
 
         # Graph inputs/outputs
         for i in range(subgraph.InputsLength()):
-            self.graph_inputs.add(
-                subgraph.Tensors(subgraph.Inputs(i)).Name().decode("utf-8")
-            )
+            idx = subgraph.Inputs(i)
+            if idx < len(tensor_names):
+                self.graph_inputs.add(tensor_names[idx])
         for i in range(subgraph.OutputsLength()):
-            self.graph_outputs.add(
-                subgraph.Tensors(subgraph.Outputs(i)).Name().decode("utf-8")
-            )
+            idx = subgraph.Outputs(i)
+            if idx < len(tensor_names):
+                self.graph_outputs.add(tensor_names[idx])
 
         log.info(
             "Model loaded: %d nodes, %d tensors, %d inputs, %d outputs",

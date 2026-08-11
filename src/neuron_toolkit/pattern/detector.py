@@ -60,9 +60,13 @@ class PatternDetector(MatchingMixin):
             self._tensor_map = getattr(model, "tensor_map", {})
             self._shape_info = getattr(model, "shape_info", {})
 
-        self.output_to_node: dict[str, object] = {
-            out: n for n in self._nodes for out in getattr(n, "output", [])
-        }
+        output_map = kwargs.pop("output_to_node", None)
+        if output_map is not None:
+            self.output_to_node = output_map
+        else:
+            self.output_to_node = {
+                out: n for n in self._nodes for out in getattr(n, "output", [])
+            }
         self.start = self._resolve(start_node)
         self.end = self._resolve(end_node)
         self._nx_graph: nx.DiGraph | None = None
@@ -97,8 +101,12 @@ class PatternDetector(MatchingMixin):
         for node in candidates:
             if node is self.end:
                 continue
-            det = PatternDetector(shim, start_node=node, end_node=self.end)
-            det.output_to_node = self.output_to_node
+            det = PatternDetector(
+                shim,
+                start_node=node,
+                end_node=self.end,
+                output_to_node=self.output_to_node,
+            )
             r = det.match(pattern)
             if r is not None:
                 results.append(r)

@@ -122,7 +122,13 @@ class MatchingMixin:
     ) -> bool:
         """Core recursive matching logic."""
         # 1. Referential Consistency Check
-        pat_id = id(pattern)
+        try:
+            import xxhash
+
+            pat_id = xxhash.xxh64_intdigest(str(id(pattern)))
+        except Exception:
+            pat_id = id(pattern)
+
         if pat_id in ctx.memo:
             return ctx.memo[pat_id] == id(node)
 
@@ -253,7 +259,56 @@ class MatchingMixin:
             actual_parents = actual_parents[:8]
 
         name = getattr(node, "name", f"node_{id(node)}")
+
+        # High-performance SciPy C-backed Maximum Bipartite Matching
+        try:
+            from scipy.sparse import csr_matrix
+            from scipy.sparse.csgraph import maximum_bipartite_matching
+
+            u_len = len(actual_parents)
+            v_len = len(non_const_pats)
+            adj = np.zeros((u_len, v_len), dtype=int)
+
+            for i, p in enumerate(actual_parents):
+                for j, pat in enumerate(non_const_pats):
+                    if (
+                        pat.op_type not in (_WILDCARD, _ANY_OF, _CONST_PAT)
+                        and getattr(p, "op_type", None) != pat.op_type
+                    ):
+                        continue
+                    snap = ctx.snapshot()
+                    if self._match_recursive(p, pat, ctx):
+                        adj[i, j] = 1
+                    ctx.restore(snap)
+
+            if adj.sum() >= v_len:
+                match_indices = maximum_bipartite_matching(csr_matrix(adj), perm_type="column")
+                if np.count_nonzero(match_indices != -1) >= v_len:
+                    ctx.visited.add(name)
+                    for parent_idx, pat_idx in enumerate(match_indices):
+                        if pat_idx != -1:
+                            if not self._match_recursive(
+                                actual_parents[parent_idx], non_const_pats[pat_idx], ctx
+                            ):
+                                return False
+                    return True
+        except Exception:
+            pass
+
+        # Fallback permutation search
         for perm in itertools.permutations(actual_parents, len(non_const_pats)):
+            # Cheap op_type pre-filter guard before taking snapshots
+            mismatch = False
+            for p, pat in zip(perm, non_const_pats, strict=False):
+                if (
+                    pat.op_type not in (_WILDCARD, _ANY_OF, _CONST_PAT)
+                    and getattr(p, "op_type", None) != pat.op_type
+                ):
+                    mismatch = True
+                    break
+            if mismatch:
+                continue
+
             snap = ctx.snapshot()
             ctx.visited.add(name)
             if all(
