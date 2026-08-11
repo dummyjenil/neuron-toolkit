@@ -28,36 +28,33 @@ class MatchContext:
     detector: PatternDetector
     bindings: dict[str, object] = field(default_factory=dict)
     trail: list[object] = field(default_factory=list)
+    trail_ids: set[int] = field(default_factory=set)
     # Maps id(Pattern) -> id(Node) to enforce referential consistency
     memo: dict[int, int] = field(default_factory=dict)
     visited: set[str] = field(default_factory=set)
 
     def snapshot(
         self,
-    ) -> tuple[dict[str, object], list[object], dict[int, int], set[str]]:
+    ) -> tuple[dict[str, object], list[object], set[int], dict[int, int], set[str]]:
         """Take a snapshot of the current state for backtracking."""
         return (
             dict(self.bindings),
             list(self.trail),
+            set(self.trail_ids),
             dict(self.memo),
             set(self.visited),
         )
 
     def restore(
         self,
-        snap: tuple[dict[str, object], list[object], dict[int, int], set[str]],
+        snap: tuple[dict[str, object], list[object], set[int], dict[int, int], set[str]],
     ) -> None:
         """Restore state from a snapshot."""
-        self.bindings, self.trail, self.memo, self.visited = snap
+        self.bindings, self.trail, self.trail_ids, self.memo, self.visited = snap
 
 
 class MatchingMixin:
-    """Mixin for matching logic in PatternDetector.
-
-    This implementation uses a recursive depth-first search with backtracking to
-    handle complex subgraph patterns, including wildcards, alternative paths,
-    and commutative operators.
-    """
+    """Mixin for matching logic in PatternDetector."""
 
     _nodes: Sequence[object]
     _tensor_map: Mapping[str, object]
@@ -95,12 +92,13 @@ class MatchingMixin:
         return self._nx_graph
 
     def _resolve(self, node: str | object | None) -> object | None:
-        """Resolve a node name or proto to a Node instance."""
+        """Resolve a node name or proto to a Node instance in O(1)."""
         if node is None or not isinstance(node, str):
             return node
-        for n in self._nodes:
-            if getattr(n, "name", "") == node:
-                return n
+        if not hasattr(self, "_node_name_map"):
+            self._node_name_map = {getattr(n, "name", ""): n for n in self._nodes}
+        if node in self._node_name_map:
+            return self._node_name_map[node]
         msg = f"Node not found in graph: '{node}'"
         raise ValueError(msg)
 
@@ -121,14 +119,8 @@ class MatchingMixin:
         ctx: MatchContext,
     ) -> bool:
         """Core recursive matching logic."""
-        # 1. Referential Consistency Check
-        try:
-            import xxhash
-
-            pat_id = xxhash.xxh64_intdigest(str(id(pattern)))
-        except Exception:
-            pat_id = id(pattern)
-
+        # 1. Fast Referential Consistency Check using integer id
+        pat_id = id(pattern)
         if pat_id in ctx.memo:
             return ctx.memo[pat_id] == id(node)
 
@@ -253,6 +245,31 @@ class MatchingMixin:
         if len(actual_parents) < len(non_const_pats):
             return False
 
+        # Fast path for standard 1 or 2 parent commutative inputs (avoids SciPy overhead)
+        if len(actual_parents) <= 2 and len(non_const_pats) <= 2:
+            name = getattr(node, "name", f"node_{id(node)}")
+            for perm in itertools.permutations(actual_parents, len(non_const_pats)):
+                mismatch = False
+                for p, pat in zip(perm, non_const_pats, strict=False):
+                    if (
+                        pat.op_type not in (_WILDCARD, _ANY_OF, _CONST_PAT)
+                        and getattr(p, "op_type", None) != pat.op_type
+                    ):
+                        mismatch = True
+                        break
+                if mismatch:
+                    continue
+
+                snap = ctx.snapshot()
+                ctx.visited.add(name)
+                if all(
+                    self._match_recursive(p, pat, ctx)
+                    for p, pat in zip(perm, non_const_pats, strict=False)
+                ):
+                    return True
+                ctx.restore(snap)
+            return False
+
         # Limit permutations to avoid explosion
         if len(actual_parents) > 8:
             log.warning("Too many parents for commutative match, limiting search")
@@ -260,7 +277,7 @@ class MatchingMixin:
 
         name = getattr(node, "name", f"node_{id(node)}")
 
-        # High-performance SciPy C-backed Maximum Bipartite Matching
+        # High-performance SciPy C-backed Maximum Bipartite Matching for 3+ parents
         try:
             from scipy.sparse import csr_matrix
             from scipy.sparse.csgraph import maximum_bipartite_matching
@@ -322,12 +339,14 @@ class MatchingMixin:
     def _finalize_match(
         self, node: object, pattern: Pattern, ctx: MatchContext
     ) -> bool:
-        """Record the successful match and update bindings/trail."""
-        if not any(n is node for n in ctx.trail):
+        """Record the successful match and update bindings/trail in O(1)."""
+        node_id = id(node)
+        if node_id not in ctx.trail_ids:
+            ctx.trail_ids.add(node_id)
             ctx.trail.append(node)
         if pattern.capture_name:
             ctx.bindings[pattern.capture_name] = node
-        ctx.memo[id(pattern)] = id(node)
+        ctx.memo[id(pattern)] = node_id
         return True
 
     def _get_parent_nodes(self, node: object, ctx: MatchContext) -> list[object | None]:

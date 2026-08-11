@@ -166,34 +166,39 @@ class ONNXRewriter(BaseRewriter):
         # Append new nodes
         all_nodes = kept_nodes + self._to_insert
 
-        # Build a temporary graph to perform topological sort
-        # We use a DiGraph to represent dependencies
-        g = nx.DiGraph()
-
+        # Fast native Kahn's algorithm topological sort
         producer_map: dict[str, int] = {
             out: j for j, p in enumerate(all_nodes) for out in p.output if out
         }
 
+        n_count = len(all_nodes)
+        in_degree = [0] * n_count
+        adj: list[list[int]] = [[] for _ in range(n_count)]
+
         for i, n in enumerate(all_nodes):
-            # Use unique node ID (index) to handle unnamed nodes
-            node_id = f"node_{i}"
-            g.add_node(node_id, proto=n)
             for inp in n.input:
                 if not inp:
                     continue
-                producer_idx = producer_map.get(inp, -1)
-                if producer_idx != -1 and producer_idx != i:
-                    g.add_edge(f"node_{producer_idx}", node_id)
+                p_idx = producer_map.get(inp, -1)
+                if p_idx != -1 and p_idx != i:
+                    adj[p_idx].append(i)
+                    in_degree[i] += 1
 
-        try:
-            sorted_node_ids = list(nx.topological_sort(g))
-            final_nodes = [
-                cast(NodeProto, g.nodes[nid]["proto"]) for nid in sorted_node_ids
-            ]
-        except nx.NetworkXCyclicError:
-            log.warning(
-                "Cycle detected during rewrite! Falling back to unsorted nodes."
-            )
+        zero_in_degree = [i for i in range(n_count) if in_degree[i] == 0]
+        sorted_indices: list[int] = []
+
+        while zero_in_degree:
+            curr = zero_in_degree.pop()
+            sorted_indices.append(curr)
+            for nxt in adj[curr]:
+                in_degree[nxt] -= 1
+                if in_degree[nxt] == 0:
+                    zero_in_degree.append(nxt)
+
+        if len(sorted_indices) == n_count:
+            final_nodes = [cast(NodeProto, all_nodes[idx]) for idx in sorted_indices]
+        else:
+            log.warning("Cycle detected during rewrite! Falling back to unsorted nodes.")
             final_nodes = all_nodes
 
         new_graph = helper.make_graph(

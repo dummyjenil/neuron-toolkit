@@ -91,23 +91,16 @@ class PatternDetector(MatchingMixin):
     def find_all(self, pattern: Pattern) -> list[MatchResult]:
         """Find all matches for *pattern* in the reachable subgraph."""
         candidates = self._descendant_nodes() if self.start is not None else self._nodes
-        shim = _GraphShim(
-            self._nodes,
-            self._tensor_map,
-            self._shape_info,
-            backend=self._backend,
-        )
+        orig_start = self.start
         results: list[MatchResult] = []
-        for node in candidates:
-            if node is self.end:
-                continue
-            det = PatternDetector(
-                shim,
-                start_node=node,
-                end_node=self.end,
-                output_to_node=self.output_to_node,
-            )
-            r = det.match(pattern)
-            if r is not None:
-                results.append(r)
+        try:
+            for node in candidates:
+                if node is self.end:
+                    continue
+                self.start = node
+                r = self.match(pattern)
+                if r is not None:
+                    results.append(r)
+        finally:
+            self.start = orig_start
         return results

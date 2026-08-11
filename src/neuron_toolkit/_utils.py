@@ -40,45 +40,47 @@ def trace_subgraph_boundaries(
     end_points: list[str | object] | str | object,
     original_outputs: set[str] | None = None,
 ) -> tuple[list[object], list[str], list[str]]:
-    """Trace and extract the boundary inputs, outputs and nodes of a subgraph.
-
-    Using networkx directed graph connectivity, we find all operators that lie on any path
-    from start_points to end_points.
-    """
-    import networkx as nx
-
+    """Trace and extract the boundary inputs, outputs and nodes of a subgraph using fast dict-based BFS/DFS."""
     # Normalize start/end points
     if not isinstance(start_points, list):
         start_points = [start_points]
     if not isinstance(end_points, list):
         end_points = [end_points]
 
-    g = nx.DiGraph()
-    node_name_to_idx = {}
+    node_name_to_idx: dict[str, int] = {}
+    node_to_idx: dict[int, int] = {}
+    forward_adj: dict[object, list[object]] = {}
+    reverse_adj: dict[object, list[object]] = {}
+    all_graph_nodes: set[object] = set()
 
     for idx, node in enumerate(nodes):
+        node_to_idx[id(node)] = idx
         node_name = getattr(node, "name", None)
         if node_name:
             node_name_to_idx[node_name] = idx
 
-        g.add_node(idx, type="op")
+        all_graph_nodes.add(idx)
+        forward_adj.setdefault(idx, [])
+        reverse_adj.setdefault(idx, [])
+
         for inp in getattr(node, "input", []):
             if inp:
-                g.add_node(inp, type="tensor")
-                g.add_edge(inp, idx)
+                all_graph_nodes.add(inp)
+                forward_adj.setdefault(inp, []).append(idx)
+                reverse_adj.setdefault(idx, []).append(inp)
+
         for out in getattr(node, "output", []):
             if out:
-                g.add_node(out, type="tensor")
-                g.add_edge(idx, out)
-
-    node_to_idx = {id(n): i for i, n in enumerate(nodes)}
+                all_graph_nodes.add(out)
+                forward_adj.setdefault(idx, []).append(out)
+                reverse_adj.setdefault(out, []).append(idx)
 
     def find_node_idx(n: object) -> int | None:
         return node_to_idx.get(id(n))
 
     def resolve_point(pt: object) -> object:
         if isinstance(pt, str):
-            if pt in g:
+            if pt in all_graph_nodes:
                 return pt
             if pt in node_name_to_idx:
                 return node_name_to_idx[pt]
@@ -88,30 +90,35 @@ def trace_subgraph_boundaries(
                 return val
         return pt
 
-    S = {resolve_point(p) for p in start_points}
-    E = {resolve_point(p) for p in end_points}
-
-    S = {s for s in S if s in g}
-    E = {e for e in E if e in g}
+    S = {resolve_point(p) for p in start_points if resolve_point(p) in all_graph_nodes}
+    E = {resolve_point(p) for p in end_points if resolve_point(p) in all_graph_nodes}
 
     if not S or not E:
         msg = "Could not resolve any valid start or end points in the graph."
         raise ValueError(msg)
 
-    # Find descendants of S
-    descendants = set()
-    for s in S:
-        descendants.add(s)
-        descendants.update(nx.descendants(g, s))
+    # 1. BFS Descendants from S
+    descendants: set[object] = set(S)
+    queue = list(S)
+    while queue:
+        curr = queue.pop()
+        for nxt in forward_adj.get(curr, []):
+            if nxt not in descendants:
+                descendants.add(nxt)
+                queue.append(nxt)
 
-    # Find ancestors of E
-    ancestors = set()
-    for e in E:
-        ancestors.add(e)
-        ancestors.update(nx.ancestors(g, e))
+    # 2. BFS Ancestors from E
+    ancestors: set[object] = set(E)
+    queue = list(E)
+    while queue:
+        curr = queue.pop()
+        for prev in reverse_adj.get(curr, []):
+            if prev not in ancestors:
+                ancestors.add(prev)
+                queue.append(prev)
 
     subgraph_nodes = descendants.intersection(ancestors)
-    kept_op_ids = [n for n in subgraph_nodes if g.nodes[n].get("type") == "op"]
+    kept_op_ids = [n for n in subgraph_nodes if isinstance(n, int)]
     kept_ops = [nodes[op_id] for op_id in kept_op_ids]
 
     # Ensure all inputs and outputs of kept operators are in subgraph_nodes
@@ -123,18 +130,19 @@ def trace_subgraph_boundaries(
             if out:
                 subgraph_nodes.add(out)
 
-    subgraph_tensors = {n for n in subgraph_nodes if g.nodes[n].get("type") == "tensor"}
+    subgraph_tensors = {n for n in subgraph_nodes if isinstance(n, str)}
 
     # Find producers for each tensor
-    producers = {}
+    producers: dict[str, int] = {}
     for op in kept_ops:
         op_idx = find_node_idx(op)
-        for out in getattr(op, "output", []):
-            if out:
-                producers[out] = op_idx
+        if op_idx is not None:
+            for out in getattr(op, "output", []):
+                if out:
+                    producers[out] = op_idx
 
     # Find consumers for each tensor
-    original_consumers = {}
+    original_consumers: dict[str, list[int]] = {}
     for idx, node in enumerate(nodes):
         for inp in getattr(node, "input", []):
             if inp:
