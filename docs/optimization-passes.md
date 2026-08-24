@@ -67,7 +67,7 @@ def fuse_add_relu_pass(graph: NeuronGraph):
         add_node = match.bindings["add"]
         inputs = list(add_node.input)
         outputs = list(match.bindings["relu"].output)
-        
+
         # Replace Add + Relu with single fused op
         rewriter.replace(
             nodes=match.nodes,

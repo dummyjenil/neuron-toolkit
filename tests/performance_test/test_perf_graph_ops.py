@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
 from neuron_toolkit import NeuronGraph
+
 from .perf_utils import (
     PerformanceTracker,
     create_large_onnx_model,

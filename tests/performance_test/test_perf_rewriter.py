@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
 from neuron_toolkit import NeuronGraph
 from neuron_toolkit.pattern import Pattern
+
 from .perf_utils import (
     PerformanceTracker,
     create_large_onnx_model,
@@ -48,6 +48,6 @@ def test_perf_rewriter_delete_nodes_scale():
     ) as perf:
         rw = graph.rewriter()
         rw.delete(bn_nodes)
-        new_model = rw.build()
+        rw.build()
 
     assert perf.duration_sec > 0.0005

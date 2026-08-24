@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
 from neuron_toolkit.backends.onnx.parser import ONNXParser
 from neuron_toolkit.backends.tflite.parser import TFLiteParser
+
 from .perf_utils import (
     PerformanceTracker,
     create_large_onnx_model,

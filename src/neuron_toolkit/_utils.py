@@ -149,10 +149,11 @@ def trace_subgraph_boundaries(
                 original_consumers.setdefault(inp, []).append(idx)
 
     # Subgraph inputs are tensors consumed but not produced within the subgraph (and not in tensor_map)
-    new_inputs = []
-    for t in subgraph_tensors:
-        if t not in producers and t not in tensor_map:
-            new_inputs.append(t)
+    new_inputs = [
+        t
+        for t in subgraph_tensors
+        if t not in producers and t not in tensor_map
+    ]
 
     # Subgraph outputs
     new_outputs = []

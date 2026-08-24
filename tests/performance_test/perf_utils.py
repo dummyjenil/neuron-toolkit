@@ -5,7 +5,9 @@ from __future__ import annotations
 import functools
 import time
 import tracemalloc
-from typing import Any, Callable, Dict, Optional
+from collections.abc import Callable
+from typing import Any
+
 import numpy as np
 import onnx
 from onnx import TensorProto, helper, numpy_helper
@@ -59,7 +61,7 @@ def profile_perf(op_name: str, scale_info: str = ""):
 
 def create_large_onnx_model(num_blocks: int = 1000, in_channels: int = 16, spatial: int = 14) -> onnx.ModelProto:
     """Build a heavy ONNX modelProto in-memory containing repetitive deep layers.
-    
+
     Each block consists of:
     Conv2D -> BatchNormalization -> Add (Residual) -> Relu
     """
@@ -143,8 +145,7 @@ def create_large_onnx_model(num_blocks: int = 1000, in_channels: int = 16, spati
         outputs,
         initializer=initializers,
     )
-    model = helper.make_model(graph, producer_name="neuron_toolkit_perf")
-    return model
+    return helper.make_model(graph, producer_name="neuron_toolkit_perf")
 
 
 def build_tflite_model_internal(

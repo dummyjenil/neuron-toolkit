@@ -38,12 +38,12 @@ def test_query_traversal(complex_model):
     # descendants
     desc = relu_node.descendants()
     assert desc.count() == 4  # Add, Mul, Sigmoid, Tanh
-    assert set(n.name for n in desc) == {"n2", "n3", "n4", "n5"}
+    assert {n.name for n in desc} == {"n2", "n3", "n4", "n5"}
 
     # ancestors
     anc = q.find_by_name("n4", exact=True).ancestors()
     assert anc.count() == 4  # Mul, Add, Relu, Identity
-    assert set(n.name for n in anc) == {"n0", "n1", "n2", "n3"}
+    assert {n.name for n in anc} == {"n0", "n1", "n2", "n3"}
 
 
 def test_query_set_ops(complex_model):

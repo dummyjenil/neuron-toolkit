@@ -7,6 +7,7 @@ This document defines the exact step-by-step technical flows, algorithms, data s
 ## 1. Model Loading & Backend Parsing Flow
 
 ### Flow Specifications:
+
 1. **Source Inspection**: Checks whether the input source is a `str` path, `bytes` buffer, ONNX `ModelProto`, or TFLite `Model`.
 2. **Magic Byte Verification**: For `bytes` buffers, offset `4:8` is inspected for the byte string `b"TFL3"`.
 3. **Shape Inference Pipeline**:
@@ -15,6 +16,7 @@ This document defines the exact step-by-step technical flows, algorithms, data s
 4. **Lazy Tensor Mapping**: Wraps initializers in `LazyTensorMap` so array buffers are deserialized via `numpy_helper.to_array()` or `buffer.DataAsNumpy()` on-demand.
 
 ### Time & Memory Complexity:
+
 - **Parse Time**: $O(V + E)$ where $V$ is operator count and $E$ is tensor wire count.
 - **Memory Overhead**: $O(V)$ for node structures. Initializer weight arrays remain zero-copy / un-instantiated until indexed.
 
@@ -23,6 +25,7 @@ This document defines the exact step-by-step technical flows, algorithms, data s
 ## 2. Query Traversal & Graph Search Flow (`NeuronQuery`)
 
 ### Flow Specifications:
+
 1. **Initialization**: Stores `nodes`, `tensor_map`, `all_nodes`, `graph_inputs`, `graph_outputs`, `shape_info`, and optional `backend`.
 2. **Cached Index Construction**:
    - `output_map`: Hash map $O(V)$ indexing output tensor names to producer nodes.
@@ -36,6 +39,7 @@ This document defines the exact step-by-step technical flows, algorithms, data s
    - Bounded by `max_depth`.
 
 ### Complexity:
+
 - **Filtering Time**: $O(K)$ where $K$ is currently selected node count.
 - **Traversal Time**: $O(V_{sub} + E_{sub})$ where $V_{sub}$ and $E_{sub}$ are connected sub-components.
 
@@ -44,6 +48,7 @@ This document defines the exact step-by-step technical flows, algorithms, data s
 ## 3. Recursive DFS Pattern Matcher Flow (`PatternDetector`)
 
 ### Flow Specifications:
+
 1. **Target Candidate Scan**: Iterates over all reachable nodes or descendant candidates of `start_node`.
 2. **`MatchContext` State Management**:
    - Tracks `bindings` (capture dict), `trail` (node list), `memo` (pattern identity map), `visited` (node names).
@@ -55,6 +60,7 @@ This document defines the exact step-by-step technical flows, algorithms, data s
    - Limits max parents to $8$ to prevent $O(P!)$ combinatorial explosion.
 
 ### Complexity:
+
 - **Best Case**: $O(P)$ where $P$ is pattern node depth.
 - **Worst Case**: $O(N \cdot P!)$ for heavily nested commutative operators.
 
@@ -63,6 +69,7 @@ This document defines the exact step-by-step technical flows, algorithms, data s
 ## 4. Staged Rewrite & Model Rebuilding Flow (`NeuronRewriter`)
 
 ### Flow Specifications:
+
 1. **Edits Staging**: `replace()`, `delete()`, `insert_before()`, `register_initializer()` append edits to pending sets (`_to_remove_ids`, `_to_insert`).
 2. **Topological Re-sorting**:
    - Builds dependency `DiGraph` over kept nodes + inserted nodes.
@@ -72,6 +79,7 @@ This document defines the exact step-by-step technical flows, algorithms, data s
    - TFLite: Serializes `OperatorCodes`, `Tensors`, `Operators`, `SubGraphs`, `Buffers`, and `Model` FlatBuffers. Copies existing option tables via FlatBuffer vtable offsets (`_copy_flatbuffer_table`).
 
 ### Complexity:
+
 - **Build Time**: $O(V \log V + B)$ where $V$ is node count and $B$ is FlatBuffer byte length.
 
 ---
@@ -79,6 +87,7 @@ This document defines the exact step-by-step technical flows, algorithms, data s
 ## 5. Subgraph Slicing & Boundary Tracing Flow (`trace_subgraph_boundaries`)
 
 ### Algorithmic Breakdown:
+
 ```
 Inputs: nodes, tensor_map, start_points (S), end_points (E), original_outputs
 Outputs: kept_ops, boundary_inputs, boundary_outputs
@@ -98,4 +107,5 @@ Outputs: kept_ops, boundary_inputs, boundary_outputs
 ```
 
 ### Complexity:
+
 - **Tracing Time**: $O(V + E)$ (Breadth-First / Depth-First Graph Search).

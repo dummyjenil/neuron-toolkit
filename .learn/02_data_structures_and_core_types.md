@@ -15,6 +15,7 @@ TensorMap = dict[str, np.ndarray]
 ```
 
 `TensorMap` is a key-value dictionary where:
+
 - **Key**: Name of a model parameter, weight, or initializer (e.g. `"conv1.weight"`).
 - **Value**: A multi-dimensional `numpy.ndarray` containing numeric values.
 
@@ -30,6 +31,7 @@ ShapeInfo = dict[str, tuple[int | None, str | None]]
 ```
 
 ### Example:
+
 ```python
 {
     "input_0": (4, "float32"),       # Rank 4 tensor [N, C, H, W], float32
@@ -52,13 +54,16 @@ class NeuronGraph:
 ```
 
 #### Initialization Logic:
+
 `NeuronGraph` supports auto-detection of inputs:
+
 1. **`str` path**: Calls `NeuronGraph.load(path)`.
 2. **`bytes`**: Inspects flatbuffer magic header at offset 4 (`source[4:8] == b"TFL3"`). If matched, uses `TFLiteParser`. Otherwise, uses `ONNXParser`.
 3. **ONNX `ModelProto`**: Uses `ONNXParser`.
 4. **TFLite `Model` object**: Uses `TFLiteParser`.
 
 #### Core Properties:
+
 - `nodes -> list[object]`: Returns all operators in the model.
 - `tensor_map -> dict[str, object]`: Returns all initializers / weight tensors.
 - `shape_info -> ShapeInfo`: Returns shape rank and data type annotations.
@@ -94,6 +99,7 @@ When matching patterns on subgraphs or sliced node lists, we don't need a full h
 ## 5. Node Abstraction (`TFLiteNode` vs `NodeProto`)
 
 ONNX models natively use `onnx.NodeProto` objects, which have:
+
 - `op_type`: String (e.g., `"Conv"`, `"Relu"`).
 - `name`: String node identifier.
 - `input`: List of input tensor name strings.

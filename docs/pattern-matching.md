@@ -60,27 +60,27 @@ conv_pat = Pattern.op("Conv").capture("my_conv").where(group=1).with_output_rank
 
 The `Pattern` class includes `ActivationMixin`, providing factory methods for over 20 standard neural network activation functions:
 
-| Method | Pattern Representation | Description |
-| :--- | :--- | :--- |
-| `Pattern.relu(x)` | `Pattern.op("Relu", x)` | ReLU activation |
-| `Pattern.sigmoid(x)` | `Pattern.op("Sigmoid", x)` | Sigmoid activation |
-| `Pattern.tanh(x)` | `Pattern.op("Tanh", x)` | Tanh activation |
-| `Pattern.leaky_relu(x)` | `Pattern.op("LeakyRelu", x)` | Leaky ReLU activation |
-| `Pattern.elu(x)` | `Pattern.op("Elu", x)` | ELU activation |
-| `Pattern.selu(x)` | `Pattern.op("Selu", x)` | SELU activation |
-| `Pattern.softplus(x)` | `Pattern.op("Softplus", x)` | Softplus activation |
-| `Pattern.softsign(x)` | `Pattern.op("Softsign", x)` | Softsign activation |
-| `Pattern.hardsigmoid(x)` | `Pattern.op("HardSigmoid", x)` | HardSigmoid activation |
-| `Pattern.hardswish(x)` | `x * Pattern.hardsigmoid(x)` | HardSwish activation |
-| `Pattern.silu(x)` / `.swish(x)` | `x * Pattern.sigmoid(x)` | SiLU / Swish activation |
-| `Pattern.gelu(x)` | `x * (Erf(x / 1.414...) + 1.0) * 0.5` | Standard GeLU approximation |
-| `Pattern.gelu_tanh(x)` | `0.5 * x * (1.0 + Tanh(...))` | Tanh GeLU approximation |
-| `Pattern.mish(x)` | `x * Tanh(Softplus(x))` | Mish activation |
-| `Pattern.relu6(x)` | `Pattern.op("Clip", x, 0.0, 6.0)` | ReLU6 activation |
-| `Pattern.softmax(x)` | `Pattern.op("Softmax", x)` | Softmax activation |
-| `Pattern.log_softmax(x)` | `Pattern.op("LogSoftmax", x)` | LogSoftmax activation |
-| `Pattern.prelu(x, slope)` | `Pattern.op("PRelu", x, slope)` | PReLU activation |
-| `Pattern.thresholded_relu(x)`| `Pattern.op("ThresholdedRelu", x)` | Thresholded ReLU activation |
+| Method                          | Pattern Representation                | Description                 |
+| :------------------------------ | :------------------------------------ | :-------------------------- |
+| `Pattern.relu(x)`               | `Pattern.op("Relu", x)`               | ReLU activation             |
+| `Pattern.sigmoid(x)`            | `Pattern.op("Sigmoid", x)`            | Sigmoid activation          |
+| `Pattern.tanh(x)`               | `Pattern.op("Tanh", x)`               | Tanh activation             |
+| `Pattern.leaky_relu(x)`         | `Pattern.op("LeakyRelu", x)`          | Leaky ReLU activation       |
+| `Pattern.elu(x)`                | `Pattern.op("Elu", x)`                | ELU activation              |
+| `Pattern.selu(x)`               | `Pattern.op("Selu", x)`               | SELU activation             |
+| `Pattern.softplus(x)`           | `Pattern.op("Softplus", x)`           | Softplus activation         |
+| `Pattern.softsign(x)`           | `Pattern.op("Softsign", x)`           | Softsign activation         |
+| `Pattern.hardsigmoid(x)`        | `Pattern.op("HardSigmoid", x)`        | HardSigmoid activation      |
+| `Pattern.hardswish(x)`          | `x * Pattern.hardsigmoid(x)`          | HardSwish activation        |
+| `Pattern.silu(x)` / `.swish(x)` | `x * Pattern.sigmoid(x)`              | SiLU / Swish activation     |
+| `Pattern.gelu(x)`               | `x * (Erf(x / 1.414...) + 1.0) * 0.5` | Standard GeLU approximation |
+| `Pattern.gelu_tanh(x)`          | `0.5 * x * (1.0 + Tanh(...))`         | Tanh GeLU approximation     |
+| `Pattern.mish(x)`               | `x * Tanh(Softplus(x))`               | Mish activation             |
+| `Pattern.relu6(x)`              | `Pattern.op("Clip", x, 0.0, 6.0)`     | ReLU6 activation            |
+| `Pattern.softmax(x)`            | `Pattern.op("Softmax", x)`            | Softmax activation          |
+| `Pattern.log_softmax(x)`        | `Pattern.op("LogSoftmax", x)`         | LogSoftmax activation       |
+| `Pattern.prelu(x, slope)`       | `Pattern.op("PRelu", x, slope)`       | PReLU activation            |
+| `Pattern.thresholded_relu(x)`   | `Pattern.op("ThresholdedRelu", x)`    | Thresholded ReLU activation |
 
 ---
 

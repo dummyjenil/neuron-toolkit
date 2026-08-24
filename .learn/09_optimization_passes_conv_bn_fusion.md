@@ -13,6 +13,7 @@ $$\text{BN}(x) = \gamma \cdot \frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}} + \beta
 Since `Convolution` is also a linear operation ($W \cdot x + b$), both operators can be mathematically merged into a **single fused Convolution operator** ($\hat{W} \cdot x + \hat{b}$).
 
 ### Benefits:
+
 - **Reduces Memory Access**: Eliminates intermediate activation tensor allocations between Conv and BN.
 - **Speeds Up Inference**: Reduces kernel launch overhead on GPUs/NPUs.
 
@@ -38,7 +39,7 @@ $$\alpha = \frac{\gamma}{\sqrt{\sigma^2 + \epsilon}}$$
 $$\hat{W} = W \cdot \alpha$$
 $$\hat{b} = b_{\text{conv}} \cdot \alpha + \beta - \mu \cdot \alpha$$
 
-*(Note: If Conv has no initial bias $b_{\text{conv}}$, then $\hat{b} = \beta - \mu \cdot \alpha$.)*
+_(Note: If Conv has no initial bias $b_{\text{conv}}$, then $\hat{b} = \beta - \mu \cdot \alpha$.)_
 
 ---
 
@@ -56,7 +57,7 @@ def fuse_conv_bn(self) -> NeuronRewriter:
     for m in matches:
         conv_node = m.bindings["conv"]
         bn_node = m.bindings["bn"]
-        
+
         # Extract constants: scale (gamma), beta, mean (mu), var (sigma^2), weight (W)
         scale = _const(bn_inputs[1])
         beta  = _const(bn_inputs[2])
@@ -68,7 +69,7 @@ def fuse_conv_bn(self) -> NeuronRewriter:
         # Compute fused scale multiplier
         multiplier = (scale / np.sqrt(var + eps)).astype(weight.dtype)
         scale_b = multiplier.reshape((scale.shape[0],) + (1,) * (weight.ndim - 1))
-        
+
         # Compute fused weights and bias
         new_weight = (weight * scale_b).astype(weight.dtype)
         if len(conv_inputs) > 2 and conv_inputs[2]:
@@ -99,6 +100,7 @@ def fuse_conv_bn(self) -> NeuronRewriter:
 ## 4. Safety Guards & Edge Cases
 
 The fusion pass checks critical safety conditions before modifying the graph:
+
 1. **Training Mode Check**: If `training_mode != 0` (model is still training), fusion is skipped because statistics are not static.
 2. **Dimension Matching**: Verifies `weight.shape[0] == scale.shape[0]`.
 3. **Missing Constants**: If any parameter tensor (`scale`, `beta`, `mean`, `var`, `weight`) is dynamic (not in `tensor_map`), fusion is skipped.

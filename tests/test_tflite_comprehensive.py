@@ -9,7 +9,7 @@ from neuron_toolkit import NeuronGraph
 
 
 def create_complex_tflite_model(path):
-    """Create a TFLite model: A -> ADD(B) -> add_out -> SUB(C) -> sub_out -> MUL(D) -> output"""
+    """Create a TFLite model: A -> ADD(B) -> add_out -> SUB(C) -> sub_out -> MUL(D) -> output."""
     builder = flatbuffers.Builder(2048)
 
     # Tensor Names
@@ -312,8 +312,8 @@ def test_tflite_traversal(complex_tflite_path):
     assert mul_node.inputs().single_node.op_type == "SUB"
 
     # Descendants & Ancestors
-    assert set(n.op_type for n in add_node.descendants()) == {"SUB", "MUL"}
-    assert set(n.op_type for n in mul_node.ancestors()) == {"ADD", "SUB"}
+    assert {n.op_type for n in add_node.descendants()} == {"SUB", "MUL"}
+    assert {n.op_type for n in mul_node.ancestors()} == {"ADD", "SUB"}
 
     # Entry & Output Nodes
     assert q.entry_nodes.single_node.op_type == "ADD"
@@ -331,7 +331,7 @@ def test_tflite_set_operations(complex_tflite_path):
     # Union
     union = q_add | q_sub
     assert union.count() == 2
-    assert set(n.op_type for n in union) == {"ADD", "SUB"}
+    assert {n.op_type for n in union} == {"ADD", "SUB"}
 
     # Intersection
     inter = union & q_add

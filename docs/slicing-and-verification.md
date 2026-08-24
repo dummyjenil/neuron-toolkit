@@ -23,6 +23,7 @@ def trace_subgraph_boundaries(
 ```
 
 Uses NetworkX directed reachability (`descendants` of start points intersected with `ancestors` of end points) to trace:
+
 1. **`kept_ops`**: All operator nodes lying on any path from `start_points` to `end_points`.
 2. **`new_inputs`**: Boundary input tensor names (tensors consumed within the subgraph that are not produced inside it and are not initializers/weights).
 3. **`new_outputs`**: Boundary output tensor names (explicit end point tensors, or internal tensors consumed outside the subgraph).

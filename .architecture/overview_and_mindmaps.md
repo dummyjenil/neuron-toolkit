@@ -66,21 +66,21 @@ mindmap
 graph TD
     A[Input Model File: .onnx / .tflite] --> B[NeuronGraph.load]
     B --> C{Backend Detection}
-    
+
     C -->|ONNX Source| D[ONNXParser]
     C -->|TFLite Source| E[TFLiteParser]
-    
+
     D --> F[_GraphShim / BaseParser]
     E --> F
-    
+
     F --> G[NeuronQuery API]
     F --> H[PatternDetector Engine]
     F --> I[NeuronRewriter Engine]
-    
+
     H -->|Matched Subgraph| J[MatchResult]
     J -->|as_query| G
     J -->|replace_from_result| I
-    
+
     I --> K[Topological Sorting & Rebuilding]
     K --> L[Saved Model Output / Memory Proto]
 ```
@@ -120,22 +120,22 @@ stateDiagram-v2
     StartMatch --> MemoCheck: Check id(Pattern) in ctx.memo
     MemoCheck --> MatchMemo: Found in Memo (Check Identity Match)
     MemoCheck --> CheckOpType: Not in Memo
-    
+
     CheckOpType --> Fail: OpType Mismatch / Attr Mismatch
     CheckOpType --> CheckInputs: OpType Matches
-    
+
     state CheckInputs {
         [*] --> BranchCommutative: Op in {Add, Mul}
         [*] --> BranchOrdered: Positional Op
-        
+
         BranchOrdered --> MatchParentsSequential: Loop i in Inputs
         BranchCommutative --> PermuteParents: Test Parent Permutations
     }
-    
+
     CheckInputs --> Backtrack: Child Branch Match Failed
     Backtrack --> RestoreSnapshot: Restore ctx.bindings & ctx.memo
     RestoreSnapshot --> TestNextAlternative: Try next Pattern alternative or permutation
-    
+
     CheckInputs --> FinalizeMatch: All Inputs & Constraints Passed
     FinalizeMatch --> StoreBindings: Add node to ctx.trail & ctx.bindings
     StoreBindings --> [*]: Return True (Match Success)

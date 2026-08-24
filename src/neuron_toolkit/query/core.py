@@ -5,7 +5,10 @@ from collections.abc import Callable, Iterator, Sequence
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 
-import networkx as nx
+try:
+    import networkx as nx
+except ImportError:
+    nx = None
 import numpy as np
 
 from neuron_toolkit._types import TensorMap
@@ -79,7 +82,10 @@ class NeuronQuery:
         return {out: n for n in self.all_nodes for out in getattr(n, "output", [])}
 
     @cached_property
-    def _nx_graph(self) -> nx.DiGraph:
+    def _nx_graph(self) -> Any:
+        if nx is None:
+            msg = "networkx is required for this operation. Please install it with 'pip install networkx'."
+            raise RuntimeError(msg)
         g = nx.DiGraph()
         for n in self.all_nodes:
             name = getattr(n, "name", "") or f"node_{id(n)}"
@@ -112,16 +118,19 @@ class NeuronQuery:
                     if parent := self.output_map.get(inp):
                         p_idx = id_to_rx[id(parent)]
                         g.add_edge(p_idx, curr_idx, inp)
-            return g, id_to_rx, name_to_rx
         except Exception:
             return None, {}, {}
+        else:
+            return g, id_to_rx, name_to_rx
 
     @cached_property
     def _node_to_idx(self) -> dict[str, int]:
         """Global topological index of each node in the full graph."""
         g, _, _ = self._rx_graph
         if g is not None:
-            try:
+            import contextlib
+
+            with contextlib.suppress(Exception):
                 import rustworkx as rx
 
                 topo_order = rx.topological_sort(g)
@@ -129,8 +138,6 @@ class NeuronQuery:
                     getattr(g[i], "name", f"node_{i}"): rank
                     for rank, i in enumerate(topo_order)
                 }
-            except Exception:
-                pass
 
         try:
             from graphlib import TopologicalSorter

@@ -3,7 +3,10 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
 
-import networkx as nx
+try:
+    import networkx as nx
+except ImportError:
+    nx = None
 
 from neuron_toolkit._utils import ShapeInfo, _GraphShim
 from neuron_toolkit.pattern._matcher import MatchContext, MatchingMixin

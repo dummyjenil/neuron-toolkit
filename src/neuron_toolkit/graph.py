@@ -34,10 +34,12 @@ def _is_tflite_runnable() -> bool:
             ],
             capture_output=True,
             timeout=5,
+            check=False,
         )
-        return res.returncode == 0
     except Exception:
         return False
+    else:
+        return res.returncode == 0
 
 
 class NeuronGraph:
@@ -203,6 +205,26 @@ class NeuronGraph:
         """Return a dictionary of all parameter/initializer weight tensors in the graph."""
         return dict(self.tensor_map)
 
+    def to_dict(self) -> dict[str, Any]:
+        """Export the model graph structure as a Python dictionary without raw weights."""
+        from neuron_toolkit.exporter import export_graph_dict
+
+        return export_graph_dict(self)
+
+    def to_json(self, path: str | None = None, indent: int = 2) -> str | None:
+        """Export the model graph structure as a JSON string or save to a file path."""
+        from neuron_toolkit.exporter import export_graph_json
+
+        return export_graph_json(self, path=path, indent=indent)
+
+    def export_graph_json(self, path: str | None = None, indent: int = 2) -> str | None:
+        """Export the model graph structure to JSON format (alias for to_json)."""
+        return self.to_json(path=path, indent=indent)
+
+    def to_graph_json(self, path: str | None = None, indent: int = 2) -> str | None:
+        """Export the model graph structure to JSON format (alias for to_json)."""
+        return self.to_json(path=path, indent=indent)
+
     def compare_outputs(
         self,
         start_points: list[str | object] | str | object,
@@ -229,11 +251,11 @@ class NeuronGraph:
                 params = list(inspect.signature(callable_module).parameters.keys())
                 unused = dict(inputs_dict)
                 # Pair arguments by name whenever possible…
-                for param in params:
-                    if param in unused:
-                        torch_inputs.append(
-                            torch.from_numpy(np.asarray(unused.pop(param)))
-                        )
+                torch_inputs.extend(
+                    torch.from_numpy(np.asarray(unused.pop(param)))
+                    for param in params
+                    if param in unused
+                )
                 # …and fill any remaining parameters with the leftover values
                 # in insertion order so positionally-passed tensors line up.
                 while len(torch_inputs) < len(params) and unused:
@@ -288,9 +310,9 @@ class NeuronGraph:
                     run_inputs[name] = next(iter(inputs_dict.values()))
                 elif not matched and len(inputs_dict) == len(session_inputs):
                     # Positional fallback: match up remaining inputs by order.
-                    for k in inputs_dict:
+                    for k, v in inputs_dict.items():
                         if k not in used_keys:
-                            run_inputs[name] = inputs_dict[k]
+                            run_inputs[name] = v
                             used_keys.add(k)
                             matched = True
                             break
@@ -340,9 +362,9 @@ class NeuronGraph:
                     )
                 elif not matched and len(inputs_dict) == len(input_details):
                     # Positional fallback: match up remaining inputs by order.
-                    for k in inputs_dict:
+                    for k, v in inputs_dict.items():
                         if k not in tflite_used_keys:
-                            interpreter.set_tensor(detail["index"], inputs_dict[k])
+                            interpreter.set_tensor(detail["index"], v)
                             tflite_used_keys.add(k)
                             matched = True
                             break
@@ -404,16 +426,17 @@ class NeuronGraph:
                         matches.append((name, py_val, model_outs_list[i]))
 
         report = {}
-        for name, py_val, model_val in matches:
-            if py_val.shape != model_val.shape:
+        for name, py_val, raw_model_val in matches:
+            curr_model_val = raw_model_val
+            if py_val.shape != curr_model_val.shape:
                 with contextlib.suppress(ValueError):
-                    model_val = model_val.reshape(py_val.shape)
+                    curr_model_val = curr_model_val.reshape(py_val.shape)
 
-            mae = np.mean(np.abs(py_val - model_val))
-            mse = np.mean((py_val - model_val) ** 2)
+            mae = np.mean(np.abs(py_val - curr_model_val))
+            mse = np.mean((py_val - curr_model_val) ** 2)
 
             py_flat = py_val.flatten()
-            model_flat = model_val.flatten()
+            model_flat = curr_model_val.flatten()
             norm_py = np.linalg.norm(py_flat)
             norm_model = np.linalg.norm(model_flat)
             if norm_py > 0 and norm_model > 0:
@@ -421,14 +444,14 @@ class NeuronGraph:
             else:
                 cos_sim = 1.0 if norm_py == norm_model else 0.0
 
-            all_close = np.allclose(py_val, model_val, rtol=rtol, atol=atol)
+            all_close = np.allclose(py_val, curr_model_val, rtol=rtol, atol=atol)
 
             report[name] = {
                 "mae": float(mae),
                 "mse": float(mse),
                 "cosine_similarity": float(cos_sim),
                 "all_close": bool(all_close),
-                "shape_match": py_val.shape == model_val.shape,
+                "shape_match": py_val.shape == curr_model_val.shape,
             }
 
         return report
@@ -439,17 +462,17 @@ class NeuronGraph:
         end_points: list[str | object] | str | object,
         rtol: float = 1e-5,
         atol: float = 1e-8,
-    ):
+    ) -> Any:
         """Decorator to verify PyTorch layer/function outputs against the model's sliced subgraph."""
 
-        def decorator(func):
+        def decorator(func: Any) -> Any:
             from functools import wraps
 
             import numpy as np
             import torch
 
             @wraps(func)
-            def wrapper(*args, **kwargs):
+            def wrapper(*args: Any, **kwargs: Any) -> Any:
                 py_out = func(*args, **kwargs)
                 inputs_dict = {}
                 func_args = args
@@ -527,7 +550,7 @@ class GraphPasses:
         backend = self.graph._backend
         tensor_map = self.graph.tensor_map
 
-        def _const(name: str):
+        def _const(name: str) -> np.ndarray | None:
             val = tensor_map.get(name)
             return val if isinstance(val, np.ndarray) else None
 

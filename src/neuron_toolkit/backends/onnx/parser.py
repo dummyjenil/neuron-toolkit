@@ -183,7 +183,6 @@ class ONNXParser(BaseParser):
         output_path: str | None = None,
     ) -> ONNXParser:
         """Slice the ONNX model between start and end points and return a new ONNXParser."""
-        import os
         import tempfile
 
         import onnx
@@ -225,6 +224,9 @@ class ONNXParser(BaseParser):
 
             return ONNXParser(extracted_model)
         finally:
+            from pathlib import Path
+
             for p in (in_path, out_path):
-                if os.path.exists(p):
-                    os.remove(p)
+                path_obj = Path(p)
+                if path_obj.exists():
+                    path_obj.unlink()

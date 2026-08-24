@@ -37,6 +37,7 @@ class BaseParser(ABC):
 ## 2. ONNX Parser (`src/neuron_toolkit/backends/onnx/parser.py`)
 
 ### Loading & Shape Inference
+
 When an ONNX file or string is loaded:
 
 ```python
@@ -55,6 +56,7 @@ if infer_shapes:
 2. **`LazyTensorMap`**: Initializers are wrapped inside `LazyTensorMap` so arrays are decoded via `onnx.numpy_helper.to_array()` only when requested by key.
 
 ### ONNX `LazyTensorMap` Implementation:
+
 ```python
 class LazyTensorMap(dict[str, "np.ndarray"]):
     def __init__(self, initializers: Sequence[onnx.TensorProto]) -> None:
@@ -73,7 +75,9 @@ class LazyTensorMap(dict[str, "np.ndarray"]):
 ```
 
 ### Attribute Extraction (`src/neuron_toolkit/backends/onnx/utils.py`)
+
 ONNX node attributes use typed protocol buffers (`AttributeProto`). `_node_attrs()` converts them into standard Python objects:
+
 - `FLOAT` -> `float`
 - `INT` -> `int`
 - `STRING` -> `str` (decoded UTF-8)
@@ -87,6 +91,7 @@ ONNX node attributes use typed protocol buffers (`AttributeProto`). `_node_attrs
 TFLite models are stored as Google FlatBuffer binary files (`.tflite`).
 
 ### Parsing FlatBuffers
+
 The parser uses the `tflite` FlatBuffer library:
 
 ```python
@@ -97,6 +102,7 @@ subgraph = model.Subgraphs(0) # Primary subgraph
 ```
 
 ### Building Nodes & Resolving OpCodes
+
 TFLite operators store opcodes as integer indices referencing a global `OperatorCodes` table in the FlatBuffer:
 
 ```python
@@ -113,9 +119,11 @@ for i in range(subgraph.OperatorsLength()):
 ```
 
 ### TFLite Options Extraction (`opt_*.py`)
+
 TFLite stores operator attributes in specific FlatBuffer tables (e.g. `Conv2DOptions`, `ReshapeOptions`, `AddOptions`).
 
 `_get_tflite_attr()` in `src/neuron_toolkit/backends/tflite/utils.py` inspects `BuiltinOptionsType()` and dynamically dispatches to category extractors:
+
 - `opt_activation.py` (`parse_SoftmaxOptions`, `parse_LeakyReluOptions`, etc.)
 - `opt_arithmetic.py` (`parse_AddOptions`, `parse_SubOptions`, etc.)
 - `opt_nn.py` (`parse_Conv2DOptions`, `parse_FullyConnectedOptions`, etc.)
@@ -123,7 +131,9 @@ TFLite stores operator attributes in specific FlatBuffer tables (e.g. `Conv2DOpt
 - `opt_quantization` & `opt_sparsity` metadata extraction.
 
 ### Quantization & Sparsity Information
+
 Unlike ONNX, TFLite tensors natively contain quantization scales and zero-points:
+
 ```python
 quantization_info[tensor_name] = {
     "min": min_vals,
@@ -133,4 +143,5 @@ quantization_info[tensor_name] = {
     "quantized_dimension": quantized_dim,
 }
 ```
+
 This metadata is preserved across queries, pattern matching, and model slicing!

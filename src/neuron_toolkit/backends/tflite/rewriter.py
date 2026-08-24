@@ -667,8 +667,8 @@ class TFLiteRewriter(BaseRewriter):
             tflite.TensorAddType(builder, dtype_code)
             tflite.TensorAddBuffer(builder, buf_idx)
             tflite.TensorAddName(builder, name)
-            tflite.TensorAddIsVariable(builder, False)
-            tflite.TensorAddHasRank(builder, True)
+            tflite.TensorAddIsVariable(builder, False)  # noqa: FBT003
+            tflite.TensorAddHasRank(builder, True)  # noqa: FBT003
             tensor_offsets.append(tflite.TensorEnd(builder))
 
         tflite.SubGraphStartTensorsVector(builder, len(tensor_offsets))

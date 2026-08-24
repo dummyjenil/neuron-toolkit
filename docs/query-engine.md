@@ -21,17 +21,17 @@ q = graph.query()
 
 All filter methods return a new `NeuronQuery` instance containing the filtered subset of nodes.
 
-| Method | Syntax | Description |
-| :--- | :--- | :--- |
-| **Op Type** | `.op(op_type)` / `.find_by_op_type(op_type)` | Filter nodes by operator type (e.g. `"Conv"`, `"Add"`). |
-| **Name** | `.name(name, exact=False)` / `.find_by_name(name)` | Filter nodes by name (substring match by default, exact if specified). |
-| **Attribute** | `.attr(name, value=None)` / `.find_by_attribute(name)` | Filter nodes possessing an attribute, optionally matching value or predicate. |
-| **Rank** | `.rank(rank)` | Filter nodes whose output tensor has a specific rank (e.g. `4`). |
-| **Data Type** | `.dtype(dtype)` | Filter nodes by output tensor data type (e.g. `"float32"`, `"int8"`). |
-| **Tensor** | `.find_by_tensor(name)` | Filter nodes consuming or producing tensor `name`. |
-| **Param Name** | `.find_by_param_name(name, exact=False)` | Filter nodes bound to weight tensor `name`. |
-| **Params Check** | `.has_params()` | Filter nodes that possess parameter/weight tensors. |
-| **Custom Predicate** | `.filter(predicate_fn)` | Filter nodes using a custom Python callable `(node) -> bool`. |
+| Method               | Syntax                                                 | Description                                                                   |
+| :------------------- | :----------------------------------------------------- | :---------------------------------------------------------------------------- |
+| **Op Type**          | `.op(op_type)` / `.find_by_op_type(op_type)`           | Filter nodes by operator type (e.g. `"Conv"`, `"Add"`).                       |
+| **Name**             | `.name(name, exact=False)` / `.find_by_name(name)`     | Filter nodes by name (substring match by default, exact if specified).        |
+| **Attribute**        | `.attr(name, value=None)` / `.find_by_attribute(name)` | Filter nodes possessing an attribute, optionally matching value or predicate. |
+| **Rank**             | `.rank(rank)`                                          | Filter nodes whose output tensor has a specific rank (e.g. `4`).              |
+| **Data Type**        | `.dtype(dtype)`                                        | Filter nodes by output tensor data type (e.g. `"float32"`, `"int8"`).         |
+| **Tensor**           | `.find_by_tensor(name)`                                | Filter nodes consuming or producing tensor `name`.                            |
+| **Param Name**       | `.find_by_param_name(name, exact=False)`               | Filter nodes bound to weight tensor `name`.                                   |
+| **Params Check**     | `.has_params()`                                        | Filter nodes that possess parameter/weight tensors.                           |
+| **Custom Predicate** | `.filter(predicate_fn)`                                | Filter nodes using a custom Python callable `(node) -> bool`.                 |
 
 ### Filtering Examples
 

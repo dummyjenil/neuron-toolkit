@@ -33,7 +33,9 @@ def trace_subgraph_boundaries(
 ### Mathematical & Algorithmic Steps:
 
 #### Step 1: Bipartite Graph Construction
+
 Construct a NetworkX directed graph containing two node types:
+
 - **Operator Nodes (`type="op"`)**: Index $0, 1, \dots, N-1$.
 - **Tensor Nodes (`type="tensor"`)**: Wire name strings.
 
@@ -41,11 +43,14 @@ Edges are added from input tensors to operators, and from operators to output te
 $$\text{Tensor}_{\text{in}} \longrightarrow \text{Op} \longrightarrow \text{Tensor}_{\text{out}}$$
 
 #### Step 2: Set Resolution ($S$ and $E$)
+
 Resolve start points and end points to node IDs or tensor names in the graph:
+
 - $S$: Set of resolved start nodes/tensors.
 - $E$: Set of resolved end nodes/tensors.
 
 #### Step 3: Ancestor & Descendant Intersection
+
 Find all nodes that lie on any path from $S$ to $E$:
 $$\text{Descendants}(S) = \{ v \in V \mid S \rightsquigarrow v \}$$
 $$\text{Ancestors}(E) = \{ v \in V \mid v \rightsquigarrow E \}$$
@@ -54,13 +59,17 @@ $$\text{SubgraphNodes} = \text{Descendants}(S) \cap \text{Ancestors}(E)$$
 All operators whose IDs belong to $\text{SubgraphNodes}$ are kept (`kept_ops`).
 
 #### Step 4: Boundary Input Identification
+
 A tensor $t$ is a **boundary input** if:
+
 1. It is consumed by an operator in `kept_ops`.
 2. It is NOT produced by any operator in `kept_ops`.
 3. It is NOT a constant weight in `tensor_map`.
 
 #### Step 5: Boundary Output Identification
+
 A tensor $t$ is a **boundary output** if:
+
 1. $t \in E$ (explicitly requested as an end point), OR
 2. The producer of $t$ is in $E$, OR
 3. $t$ has consumers outside `kept_ops` in the original model, OR
@@ -92,6 +101,7 @@ onnx.utils.extract_model(
 ## 7. TFLite Slicing Implementation (`backends/tflite/parser.py`)
 
 Since TFLite lacks a built-in slicing utility, `TFLiteParser.slice()` performs manual FlatBuffer reconstruction:
+
 1. Traces boundaries using `trace_subgraph_boundaries()`.
 2. Collects required tensors and re-indexes them.
 3. Filters used operator codes.

@@ -6,7 +6,6 @@ import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, cast
 
-import networkx as nx
 import onnx
 from onnx import helper
 from onnx.onnx_pb import NodeProto
@@ -180,7 +179,7 @@ class ONNXRewriter(BaseRewriter):
                 if not inp:
                     continue
                 p_idx = producer_map.get(inp, -1)
-                if p_idx != -1 and p_idx != i:
+                if p_idx not in (-1, i):
                     adj[p_idx].append(i)
                     in_degree[i] += 1
 

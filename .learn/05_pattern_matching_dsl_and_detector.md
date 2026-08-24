@@ -53,6 +53,7 @@ p_pow = p1 ** 3    # Pattern.op("Pow", [p1, Pattern.const(3)])
 ```
 
 ### Activation Helpers:
+
 `ActivationMixin` (`src/neuron_toolkit/pattern/_activations.py`) adds factory methods for standard activations:
 
 ```python
@@ -72,6 +73,7 @@ Pattern.mish(x)          # x * Tanh(Softplus(x))
 `PatternDetector` scans a neural network graph to find subgraphs matching a `Pattern`.
 
 ### Key Challenges in Subgraph Matching:
+
 1. **Graphs are Directed Acyclic Graphs (DAGs)**, not trees. Nodes can branch and merge.
 2. **Referential Consistency**: If a pattern reuses a sub-pattern node (e.g. $x + x$), both inputs MUST resolve to the exact same node in the model graph.
 3. **Commutative Operators**: Operators like `Add` or `Mul` can receive inputs in any order ($A + B = B + A$).
@@ -94,6 +96,7 @@ class MatchContext:
 ```
 
 ### Snapshot & Restore (Backtracking):
+
 To support backtracking when an alternative path fails:
 
 ```python
@@ -127,7 +130,9 @@ Step 6: Finalize Match (Record node in trail, store captures in bindings)
 ```
 
 ### Commutative Matching Algorithm (`_match_commutative`):
+
 For `Add` and `Mul` operations:
+
 1. Constant patterns (`__const__`) are matched first against model initializers.
 2. For remaining non-constant inputs, `itertools.permutations()` tests all parent permutations against input patterns.
 3. If any permutation matches recursively, the match succeeds!

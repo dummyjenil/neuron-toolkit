@@ -245,7 +245,7 @@ def test_onnx_single_node_extraction(complex_model, tmp_path):
     graph = NeuronGraph(complex_model)
 
     # Find the Relu node
-    relu_node = [n for n in graph.nodes if getattr(n, "op_type", "") == "Relu"][0]
+    relu_node = next(n for n in graph.nodes if getattr(n, "op_type", "") == "Relu")
 
     # Extract this node
     sliced = graph.slice_node(relu_node)

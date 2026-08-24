@@ -99,11 +99,11 @@ def test_neuron_query_engine(complex_model):
 
     # Ancestors: all upstream nodes contributing to the target node
     anc = q.name("n4", exact=True).ancestors()
-    assert set(n.name for n in anc) == {"n0", "n1", "n2", "n3"}
+    assert {n.name for n in anc} == {"n0", "n1", "n2", "n3"}
 
     # Descendants: all downstream nodes affected by the target node
     desc = relu_node_q.descendants()
-    assert set(n.name for n in desc) == {"n2", "n3", "n4", "n5"}
+    assert {n.name for n in desc} == {"n2", "n3", "n4", "n5"}
 
 
 def test_pattern_dsl_and_matching(complex_model, simple_model):

@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import contextlib
 import itertools
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
-import networkx as nx
+try:
+    import networkx as nx
+except ImportError:
+    nx = None
 import numpy as np
 
 from neuron_toolkit._utils import ShapeInfo
@@ -221,7 +225,7 @@ class MatchingMixin:
                     return False
         return True
 
-    def _match_commutative(
+    def _match_commutative(  # noqa: PLR0911
         self,
         node: object,
         parents: list[object | None],
@@ -278,7 +282,7 @@ class MatchingMixin:
         name = getattr(node, "name", f"node_{id(node)}")
 
         # High-performance SciPy C-backed Maximum Bipartite Matching for 3+ parents
-        try:
+        with contextlib.suppress(Exception):
             from scipy.sparse import csr_matrix
             from scipy.sparse.csgraph import maximum_bipartite_matching
 
@@ -303,14 +307,11 @@ class MatchingMixin:
                 if np.count_nonzero(match_indices != -1) >= v_len:
                     ctx.visited.add(name)
                     for parent_idx, pat_idx in enumerate(match_indices):
-                        if pat_idx != -1:
-                            if not self._match_recursive(
-                                actual_parents[parent_idx], non_const_pats[pat_idx], ctx
-                            ):
-                                return False
+                        if pat_idx != -1 and not self._match_recursive(
+                            actual_parents[parent_idx], non_const_pats[pat_idx], ctx
+                        ):
+                            return False
                     return True
-        except Exception:
-            pass
 
         # Fallback permutation search
         for perm in itertools.permutations(actual_parents, len(non_const_pats)):

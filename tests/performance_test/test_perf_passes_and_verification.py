@@ -9,6 +9,7 @@ from torch import nn
 
 from neuron_toolkit import NeuronGraph
 from neuron_toolkit._utils import trace_subgraph_boundaries
+
 from .perf_utils import (
     PerformanceTracker,
     create_large_onnx_model,

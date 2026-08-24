@@ -235,11 +235,11 @@ Yeh rahe **Extraordinary & Industry-First Features** jo abhi market me kisi bhi 
 
 ### Comparison Matrix (Why `neuron-toolkit` Stands Out)
 
-| Feature | ONNX GraphSurgeon | Netron | TorchScript / FX | **Neuron-Toolkit (Future)** |
-| :--- | :---: | :---: | :---: | :---: |
-| **Multi-Backend (ONNX + TFLite)** | ❌ (ONNX only) | 👁️ (View only) | ❌ (PyTorch only) | **✅ Unified API** |
-| **AI Natural Language Rewriter** | ❌ | ❌ | ❌ | **✅ Built-in LLM Agent** |
-| **Self-Healing / Auto-Repair** | ❌ | ❌ | ❌ | **✅ Automated Node Fallback** |
-| **Zero-Execution Latency Simulator** | ❌ | ❌ | ❌ | **✅ Roofline Hardware Simulator** |
-| **Model Watermarking & IP Protection** | ❌ | ❌ | ❌ | **✅ Weight Steganography** |
-| **Direct Model Grafting** | ⚠️ Manual | ❌ | ⚠️ Complex | **✅ Single Line Grafting** |
+| Feature                                | ONNX GraphSurgeon |     Netron     | TorchScript / FX  |    **Neuron-Toolkit (Future)**     |
+| :------------------------------------- | :---------------: | :------------: | :---------------: | :--------------------------------: |
+| **Multi-Backend (ONNX + TFLite)**      |  ❌ (ONNX only)   | 👁️ (View only) | ❌ (PyTorch only) |         **✅ Unified API**         |
+| **AI Natural Language Rewriter**       |        ❌         |       ❌       |        ❌         |     **✅ Built-in LLM Agent**      |
+| **Self-Healing / Auto-Repair**         |        ❌         |       ❌       |        ❌         |   **✅ Automated Node Fallback**   |
+| **Zero-Execution Latency Simulator**   |        ❌         |       ❌       |        ❌         | **✅ Roofline Hardware Simulator** |
+| **Model Watermarking & IP Protection** |        ❌         |       ❌       |        ❌         |    **✅ Weight Steganography**     |
+| **Direct Model Grafting**              |     ⚠️ Manual     |       ❌       |    ⚠️ Complex     |    **✅ Single Line Grafting**     |

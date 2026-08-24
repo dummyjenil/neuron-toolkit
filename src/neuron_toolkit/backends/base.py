@@ -54,6 +54,18 @@ class BaseParser(ABC):
         """Return a summary of the model."""
         pass
 
+    def to_dict(self) -> dict[str, object]:
+        """Export the model graph structure as a Python dictionary without raw weights."""
+        from neuron_toolkit.exporter import export_graph_dict
+
+        return export_graph_dict(self)
+
+    def to_json(self, path: str | None = None, indent: int = 2) -> str | None:
+        """Export the model graph structure as a JSON string or save to a file path."""
+        from neuron_toolkit.exporter import export_graph_json
+
+        return export_graph_json(self, path=path, indent=indent)
+
 
 class BaseRewriter(ABC):
     """Abstract base class for model rewriters."""

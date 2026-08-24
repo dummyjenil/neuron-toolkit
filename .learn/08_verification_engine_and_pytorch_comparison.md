@@ -7,6 +7,7 @@ This module explains how `neuron-toolkit` performs numerical verification (`comp
 ## 1. Why Cross-Verification is Essential
 
 When performing graph optimizations (such as operator fusion, quantization, or node replacements), subtle numerical bugs can arise due to:
+
 - Mismatched attribute configurations (padding, strides, dilations).
 - Precision loss during parameter conversion.
 - Operator semantics differences between PyTorch, ONNX, and TFLite.
@@ -20,16 +21,20 @@ When performing graph optimizations (such as operator fusion, quantization, or n
 To evaluate numerical fidelity between PyTorch outputs $Y_{\text{torch}}$ and sliced backend outputs $Y_{\text{model}}$:
 
 ### 1. Mean Absolute Error (MAE)
+
 $$\text{MAE} = \frac{1}{N} \sum_{i=1}^{N} |Y_{\text{torch}}[i] - Y_{\text{model}}[i]|$$
 
 ### 2. Mean Squared Error (MSE)
+
 $$\text{MSE} = \frac{1}{N} \sum_{i=1}^{N} (Y_{\text{torch}}[i] - Y_{\text{model}}[i])^2$$
 
 ### 3. Cosine Similarity
+
 $$\text{CosineSim}(u, v) = \frac{u \cdot v}{\|u\|_2 \|v\|_2}$$
 Measures structural direction alignment between flattened output vectors (value near $1.0$ indicates identical shape dynamics).
 
 ### 4. `allclose` Guard
+
 Uses `numpy.allclose(Y_torch, Y_model, rtol=1e-5, atol=1e-8)` to check if every element satisfies absolute and relative tolerances.
 
 ---

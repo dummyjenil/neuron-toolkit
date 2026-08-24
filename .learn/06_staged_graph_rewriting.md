@@ -9,6 +9,7 @@ This module explains how graph transformations (replacing, deleting, or insertin
 Direct inline mutation of computational graphs is dangerous. Deleting or inserting nodes directly while iterating over a graph can break topological ordering, invalidate index pointers, and cause memory corruption.
 
 `neuron-toolkit` uses a **Staged Graph Rewriter**:
+
 1. You register intended changes (`replace`, `delete`, `insert_before`, `register_initializer`).
 2. Changes are stored in temporary staging lists (`_to_remove_ids`, `_to_insert`).
 3. When `build()` is called, all edits are applied in a single pass, followed by **topological sorting** and **shape re-inference**.
@@ -43,18 +44,21 @@ class BaseRewriter(ABC):
 ## 3. ONNX Rewriter (`src/neuron_toolkit/backends/onnx/rewriter.py`)
 
 ### Staging Edits:
+
 ```python
 def replace(self, nodes, new_op, inputs, outputs, name=None, **attrs):
     for n in nodes:
         self._to_remove_ids.add(id(n)) # Stage for deletion by object ID
-    
+
     new_node = helper.make_node(new_op, inputs=inputs, outputs=outputs, name=name, **attrs)
     self._to_insert.append(new_node) # Stage new node for insertion
     return self
 ```
 
 ### Applying Edits in `build()`:
+
 1. **Node Filtering**:
+
    ```python
    kept_nodes = [n for n in orig_graph.node if id(n) not in self._to_remove_ids]
    all_nodes = kept_nodes + self._to_insert
@@ -62,6 +66,7 @@ def replace(self, nodes, new_op, inputs, outputs, name=None, **attrs):
 
 2. **Topological Sorting via NetworkX**:
    New inserted nodes might be appended at the end of the list out of order. `ONNXRewriter` constructs a temporary `DiGraph` linking node producers to consumers and runs `nx.topological_sort(g)`:
+
    ```python
    sorted_node_ids = list(nx.topological_sort(g))
    final_nodes = [g.nodes[nid]["proto"] for nid in sorted_node_ids]
@@ -77,6 +82,7 @@ def replace(self, nodes, new_op, inputs, outputs, name=None, **attrs):
 Rewriting a TFLite FlatBuffer binary is significantly more complex because FlatBuffers are immutable byte arrays built bottom-up.
 
 ### FlatBuffer Builder Pipeline:
+
 1. **Operator Codes Registration (`_prepare_opcodes`)**: Collects existing opcodes and assigns new integer codes for inserted ops.
 2. **Tensor Table Serialization (`_build_tensors`)**: Re-serializes existing tensors and appends new registered weight tensors (`register_tensor`).
 3. **FlatBuffer Options Serialization**:
@@ -99,6 +105,7 @@ Rewriting a TFLite FlatBuffer binary is significantly more complex because FlatB
 ## 5. Convenient Fluent Shortcuts
 
 ### `graph.replace(pattern, new_op, **attrs)`
+
 Instead of manually matching and rewriting, you can call `.replace()` directly on `NeuronGraph`:
 
 ```python

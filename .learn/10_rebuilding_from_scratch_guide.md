@@ -15,6 +15,7 @@ cd neuron-toolkit
 ```
 
 ### `pyproject.toml`:
+
 ```toml
 [build-system]
 requires = ["hatchling"]
@@ -45,6 +46,7 @@ dependencies = [
 ## Step 3: Implement Abstract Base Backend Classes
 
 Create `src/neuron_toolkit/backends/base.py`:
+
 - `BaseParser`: Defines abstract methods (`find()`, `pattern_detect()`, `rewriter()`, `get_node_attrs()`, `is_constant_node()`, `get_constant_value()`, `summary()`).
 - `BaseRewriter`: Defines abstract methods (`replace()`, `delete()`, `insert_before()`, `reset()`, `build()`).
 
@@ -70,6 +72,7 @@ Create `src/neuron_toolkit/backends/base.py`:
 ## Step 6: Implement Fluent Query Engine
 
 Create `src/neuron_toolkit/query/core.py`:
+
 - Implement `NeuronQuery`.
 - Add `@cached_property` graph structures (`output_map`, `_nx_graph`, `_node_to_idx`).
 - Implement filters (`op`, `name`, `attr`, `rank`, `dtype`, `find_by_param_name`).
