@@ -28,7 +28,7 @@ class _GraphShim:
         backend: object | None = None,
     ) -> None:
         self.nodes = nodes
-        self.tensor_map = tensor_map
+        self.tensor_map = dict(tensor_map) if isinstance(tensor_map, Mapping) else tensor_map
         self.shape_info: ShapeInfo = shape_info or {}
         self.backend = backend
 

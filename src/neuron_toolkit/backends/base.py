@@ -66,6 +66,60 @@ class BaseParser(ABC):
 
         return export_graph_json(self, path=path, indent=indent)
 
+    def save_safetensors(self, path: str, metadata: dict[str, str] | None = None) -> None:
+        """Save model weight and parameter tensors into a .safetensors file."""
+        from neuron_toolkit.exporter import export_safetensors
+
+        export_safetensors(self, path, metadata=metadata)
+
+    def export_safetensors(self, path: str, metadata: dict[str, str] | None = None) -> None:
+        """Save model weight and parameter tensors into a .safetensors file (alias)."""
+        self.save_safetensors(path, metadata=metadata)
+
+    def replace_weights(
+        self,
+        weights_dict: dict[str, object],
+        *,
+        strict: bool = False,
+    ) -> dict[str, list[str]]:
+        """Replace model weights and initializers in-place from a dictionary."""
+        tensor_map = getattr(self, "tensor_map", {})
+        model_keys = set(tensor_map.keys())
+        provided_keys = set(weights_dict.keys())
+
+        missing_keys = sorted(model_keys - provided_keys)
+        unexpected_keys = sorted(provided_keys - model_keys)
+
+        if strict:
+            if missing_keys:
+                msg = f"Missing key(s) in weights: {missing_keys}"
+                raise ValueError(msg)
+            if unexpected_keys:
+                msg = f"Unexpected key(s) in weights: {unexpected_keys}"
+                raise ValueError(msg)
+
+        if isinstance(tensor_map, dict):
+            for k, v in weights_dict.items():
+                if k in model_keys:
+                    tensor_map[k] = v
+
+        return {
+            "missing_keys": missing_keys,
+            "unexpected_keys": unexpected_keys,
+        }
+
+    def load_safetensors(
+        self,
+        path: str,
+        *,
+        strict: bool = False,
+    ) -> dict[str, list[str]]:
+        """Load weights from a .safetensors file and replace in-place."""
+        from neuron_toolkit.exporter import load_safetensors
+
+        weights = load_safetensors(path)
+        return self.replace_weights(weights, strict=strict)
+
 
 class BaseRewriter(ABC):
     """Abstract base class for model rewriters."""

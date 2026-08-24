@@ -195,6 +195,7 @@ def _extract_onnx_full_shapes(model: Any) -> dict[str, dict[str, Any]]:
                 else:
                     dim_list.append(None)
         shapes[vi.name] = {
+            "name": vi.name,
             "shape": dim_list,
             "rank": len(dim_list),
             "dtype": dtype,
@@ -227,6 +228,7 @@ def _extract_tflite_full_shapes(
         dtype = _TFLITE_DTYPE_TO_NP.get(dtype_code, "unknown")
 
         shape_entry: dict[str, Any] = {
+            "name": name,
             "shape": shape,
             "rank": len(shape),
             "dtype": dtype,
@@ -275,6 +277,8 @@ def export_graph_dict(source: Any) -> dict[str, Any]:
         metadata["model_version"] = getattr(model, "model_version", 0)
         metadata["doc_string"] = getattr(model, "doc_string", "")
         metadata["ir_version"] = getattr(model, "ir_version", None)
+        metadata["graph_name"] = getattr(model.graph, "name", "main_graph")
+        metadata["graph_doc_string"] = getattr(model.graph, "doc_string", "")
         if hasattr(model, "opset_import"):
             metadata["opset_import"] = [
                 {"domain": op.domain, "version": op.version}
@@ -308,7 +312,7 @@ def export_graph_dict(source: Any) -> dict[str, Any]:
     # Enrich full_shapes with tensor_map shapes and basic shape_info
     for name, (rank, dtype) in shape_info_basic.items():
         if name not in full_shapes:
-            full_shapes[name] = {"shape": None, "rank": rank, "dtype": dtype}
+            full_shapes[name] = {"name": name, "shape": None, "rank": rank, "dtype": dtype}
 
     # 2. Extract and analyze all weight initializers
     weights_summary_list: list[dict[str, Any]] = []
@@ -320,6 +324,8 @@ def export_graph_dict(source: Any) -> dict[str, Any]:
         if arr is not None:
             stats_dict = compute_weight_stats(arr)
             stats_dict["name"] = name
+            if name in full_shapes and "quantization" in full_shapes[name]:
+                stats_dict["quantization"] = full_shapes[name]["quantization"]
             weights_by_name[name] = stats_dict
             weights_summary_list.append(stats_dict)
             total_elements += stats_dict["numel"]
@@ -327,6 +333,7 @@ def export_graph_dict(source: Any) -> dict[str, Any]:
             # Update shape info if missing
             if name not in full_shapes:
                 full_shapes[name] = {
+                    "name": name,
                     "shape": stats_dict["shape"],
                     "rank": len(stats_dict["shape"]),
                     "dtype": stats_dict["dtype"],
@@ -410,12 +417,27 @@ def export_graph_dict(source: Any) -> dict[str, Any]:
             if inp_name in weights_by_name
         ]
 
-        # Quantization / Sparsity (for TFLite nodes)
+        # Quantization / Sparsity
         node_quantization = None
         for out_name in node_outputs:
             if out_name in full_shapes and "quantization" in full_shapes[out_name]:
                 node_quantization = full_shapes[out_name]["quantization"]
                 break
+
+        if (
+            node_quantization is None
+            and op_type in ("QuantizeLinear", "DequantizeLinear")
+            and len(node_inputs) >= 2
+        ):
+            scale_name = node_inputs[1]
+            scale_val = tensor_map.get(scale_name)
+            zp_name = node_inputs[2] if len(node_inputs) >= 3 else None
+            zp_val = tensor_map.get(zp_name) if zp_name else None
+            node_quantization = {
+                "scale": _sanitize_for_json(scale_val) if scale_val is not None else scale_name,
+                "zero_point": _sanitize_for_json(zp_val) if zp_val is not None else zp_name,
+                "axis": sanitized_attrs.get("axis", 1),
+            }
 
         node_sparsity = None
         for inp_name in node_inputs:
@@ -552,4 +574,375 @@ def export_graph_json(
         return None
 
     return json_str
+
+
+_NP_DTYPE_TO_SAFETENSORS: dict[str, str] = {
+    "float32": "F32",
+    "float64": "F64",
+    "float16": "F16",
+    "int8": "I8",
+    "int16": "I16",
+    "int32": "I32",
+    "int64": "I64",
+    "uint8": "U8",
+    "uint16": "U16",
+    "uint32": "U32",
+    "uint64": "U64",
+    "bool": "BOOL",
+}
+
+_SAFETENSORS_TO_NP_DTYPE: dict[str, str] = {
+    v: k for k, v in _NP_DTYPE_TO_SAFETENSORS.items()
+}
+
+
+def export_safetensors(
+    source: Any,
+    path: str,
+    metadata: dict[str, str] | None = None,
+) -> None:
+    """Save all initializers and weights of the model into a standard .safetensors file.
+
+    Parameters:
+        source: A NeuronGraph, backend parser, or mapping of tensor names to NumPy arrays.
+        path: Destination file path (e.g. 'model.safetensors').
+        metadata: Optional string dictionary for safetensors __metadata__ header.
+    """
+    import struct
+    from pathlib import Path
+
+    # Extract tensor dictionary
+    backend = getattr(source, "_backend", source)
+    if hasattr(backend, "tensor_map"):
+        tensor_dict = dict(backend.tensor_map)
+    elif isinstance(source, Mapping):
+        tensor_dict = dict(source)
+    else:
+        tensor_dict = {}
+
+    # Built-in zero-dependency compliant Safetensors serializer
+    header: dict[str, Any] = {}
+    if metadata:
+        header["__metadata__"] = {str(k): str(v) for k, v in metadata.items()}
+
+    data_buffers: list[bytes] = []
+    current_offset = 0
+
+    for name in sorted(tensor_dict.keys()):
+        arr = tensor_dict[name]
+        if arr is None:
+            continue
+        np_arr = np.ascontiguousarray(arr)
+        dtype_str = str(np_arr.dtype)
+        st_dtype = _NP_DTYPE_TO_SAFETENSORS.get(dtype_str, "F32")
+        raw_bytes = np_arr.tobytes()
+        byte_len = len(raw_bytes)
+
+        header[name] = {
+            "dtype": st_dtype,
+            "shape": list(np_arr.shape),
+            "data_offsets": [current_offset, current_offset + byte_len],
+        }
+        data_buffers.append(raw_bytes)
+        current_offset += byte_len
+
+    header_bytes = json.dumps(header, separators=(",", ":")).encode("utf-8")
+    header_len = len(header_bytes)
+
+    with Path(path).open("wb") as f:
+        f.write(struct.pack("<Q", header_len))
+        f.write(header_bytes)
+        f.writelines(data_buffers)
+
+
+def load_safetensors(path: str) -> dict[str, np.ndarray]:
+    """Load tensors from a .safetensors file into a dictionary of NumPy arrays."""
+    import struct
+    from pathlib import Path
+
+    with Path(path).open("rb") as f:
+        header_len_bytes = f.read(8)
+        if len(header_len_bytes) < 8:
+            msg = "Invalid safetensors file: insufficient header length."
+            raise ValueError(msg)
+        (header_len,) = struct.unpack("<Q", header_len_bytes)
+        header_json_bytes = f.read(header_len)
+        header = json.loads(header_json_bytes.decode("utf-8"))
+
+        data_start_offset = 8 + header_len
+        result: dict[str, np.ndarray] = {}
+
+        for key, info in header.items():
+            if key == "__metadata__":
+                continue
+            st_dtype = info["dtype"]
+            shape = info["shape"]
+            start_off, end_off = info["data_offsets"]
+            byte_len = end_off - start_off
+
+            f.seek(data_start_offset + start_off)
+            raw_bytes = f.read(byte_len)
+
+            np_dtype = _SAFETENSORS_TO_NP_DTYPE.get(st_dtype, "float32")
+            arr = np.frombuffer(raw_bytes, dtype=np_dtype).reshape(shape)
+            result[key] = arr
+
+        return result
+
+
+_NP_DTYPE_TO_ONNX: dict[str, int] = {
+    "float32": 1,   # TensorProto.FLOAT
+    "uint8": 2,     # TensorProto.UINT8
+    "int8": 3,      # TensorProto.INT8
+    "uint16": 4,    # TensorProto.UINT16
+    "int16": 5,     # TensorProto.INT16
+    "int32": 6,     # TensorProto.INT32
+    "int64": 7,     # TensorProto.INT64
+    "string": 8,    # TensorProto.STRING
+    "object": 8,    # TensorProto.STRING
+    "bool": 9,      # TensorProto.BOOL
+    "float16": 10,  # TensorProto.FLOAT16
+    "float64": 11,  # TensorProto.DOUBLE
+    "uint32": 12,   # TensorProto.UINT32
+    "uint64": 13,   # TensorProto.UINT64
+    "complex64": 14,  # TensorProto.COMPLEX64
+    "complex128": 15,  # TensorProto.COMPLEX128
+    "bfloat16": 16,  # TensorProto.BFLOAT16
+}
+
+
+def _random_tensor_for_dtype(
+    shape: Sequence[int],
+    dtype_str: str,
+    rng: np.random.Generator | None = None,
+) -> np.ndarray:
+    """Generate a pseudo-random or constant tensor matching the given shape and dtype."""
+    if rng is None:
+        rng = np.random.default_rng()
+
+    clean_shape = tuple(
+        int(dim) if isinstance(dim, (int, np.integer)) else 1 for dim in shape
+    )
+
+    if dtype_str in ("float32", "float64", "float16", "bfloat16"):
+        raw = rng.standard_normal(clean_shape)
+        return raw.astype(dtype_str if dtype_str != "bfloat16" else "float32")
+    if dtype_str in ("int32", "int64", "int16", "int8"):
+        return rng.integers(0, 10, size=clean_shape, dtype=dtype_str)
+    if dtype_str in ("uint8", "uint16", "uint32", "uint64"):
+        return rng.integers(0, 10, size=clean_shape, dtype=dtype_str)
+    if dtype_str == "bool":
+        return rng.choice([True, False], size=clean_shape)
+    return np.zeros(clean_shape, dtype=dtype_str)
+
+
+def build_onnx_model_from_json(
+    json_dict_or_str: dict[str, Any] | str,
+    weights: dict[str, np.ndarray] | str | None = None,
+    seed: int | None = None,
+) -> Any:
+    """Rebuild a complete ONNX ModelProto from a JSON graph representation and optional weights.
+
+    Parameters:
+        json_dict_or_str: Python dictionary or JSON string/filepath from `to_json()` / `to_dict()`.
+        weights: Optional dictionary of NumPy arrays, or path to a .safetensors file.
+                 If None, weights and initializers will be randomly initialized.
+        seed: Optional integer seed for reproducible random weight initialization.
+
+    Returns:
+        onnx.ModelProto instance.
+    """
+    from pathlib import Path
+
+    import onnx
+    from onnx import helper, numpy_helper
+
+    if isinstance(json_dict_or_str, str):
+        if json_dict_or_str.strip().startswith("{"):
+            graph_dict = json.loads(json_dict_or_str)
+        else:
+            graph_dict = json.loads(Path(json_dict_or_str).read_text(encoding="utf-8"))
+    else:
+        graph_dict = json_dict_or_str
+
+    weights_map: dict[str, np.ndarray] = {}
+    if isinstance(weights, str):
+        weights_map = load_safetensors(weights)
+    elif isinstance(weights, Mapping):
+        weights_map = dict(weights)
+
+    rng = np.random.default_rng(seed) if seed is not None else np.random.default_rng()
+
+    metadata = graph_dict.get("metadata", {})
+    graph_name = metadata.get("graph_name", "reconstructed_graph")
+    graph_doc = metadata.get("graph_doc_string", "")
+
+    # 1. Rebuild Initializers / Weights
+    initializers_dict: dict[str, np.ndarray] = {}
+
+    weights_summary = graph_dict.get("weights_summary", {})
+    tensors_list = weights_summary.get("tensors", [])
+    for t_info in tensors_list:
+        name = t_info.get("name")
+        if not name:
+            continue
+        shape = t_info.get("shape", [])
+        dtype_str = t_info.get("dtype", "float32")
+        if name in weights_map:
+            initializers_dict[name] = np.ascontiguousarray(weights_map[name])
+        else:
+            initializers_dict[name] = _random_tensor_for_dtype(shape, dtype_str, rng)
+
+    # Include any extra weight passed in weights_map
+    for name, arr in weights_map.items():
+        if name not in initializers_dict:
+            initializers_dict[name] = np.ascontiguousarray(arr)
+
+    # 2. Build ONNX Initializer TensorProtos
+    onnx_initializers = [
+        numpy_helper.from_array(arr, name=name)
+        for name, arr in sorted(initializers_dict.items())
+    ]
+    initializer_names = set(initializers_dict.keys())
+
+    # 3. Build Graph Inputs
+    graph_inputs = []
+    for inp in graph_dict.get("inputs", []):
+        name = inp["name"]
+        dtype_str = inp.get("dtype", "float32")
+        elem_type = _NP_DTYPE_TO_ONNX.get(dtype_str, onnx.TensorProto.FLOAT)
+        shape = inp.get("shape")
+        vi = helper.make_tensor_value_info(name, elem_type, shape)
+        graph_inputs.append(vi)
+
+    # 4. Build Graph Outputs
+    graph_outputs = []
+    for out in graph_dict.get("outputs", []):
+        name = out["name"]
+        dtype_str = out.get("dtype", "float32")
+        elem_type = _NP_DTYPE_TO_ONNX.get(dtype_str, onnx.TensorProto.FLOAT)
+        shape = out.get("shape")
+        vi = helper.make_tensor_value_info(name, elem_type, shape)
+        graph_outputs.append(vi)
+
+    # 5. Build Graph Nodes
+    graph_nodes = []
+    for node_info in graph_dict.get("nodes", []):
+        op_type = node_info.get("op_type", "Unknown")
+        name = node_info.get("name", "")
+        domain = node_info.get("domain", "") or ""
+        inputs = node_info.get("inputs", [])
+        outputs = node_info.get("outputs", [])
+        raw_attrs = node_info.get("attributes", {})
+
+        cleaned_attrs = {}
+        for k, v in raw_attrs.items():
+            if op_type == "Constant" and k == "value":
+                if isinstance(v, (list, np.ndarray)):
+                    cleaned_attrs[k] = numpy_helper.from_array(np.asarray(v), name="value")
+                elif isinstance(v, dict) and v.get("type") == "ndarray":
+                    shape = v.get("shape", [1])
+                    dtype = v.get("dtype", "float32")
+                    arr = _random_tensor_for_dtype(shape, dtype, rng)
+                    cleaned_attrs[k] = numpy_helper.from_array(arr, name="value")
+                elif isinstance(v, onnx.TensorProto):
+                    cleaned_attrs[k] = v
+                else:
+                    cleaned_attrs[k] = v
+            else:
+                cleaned_attrs[k] = v
+
+        node_kw = {}
+        if domain:
+            node_kw["domain"] = domain
+
+        node_proto = helper.make_node(
+            op_type,
+            inputs=inputs,
+            outputs=outputs,
+            name=name,
+            **node_kw,
+            **cleaned_attrs,
+        )
+        graph_nodes.append(node_proto)
+
+    # 6. Build Value Info (Intermediate Shapes if any)
+    value_infos = []
+    for node_info in graph_dict.get("nodes", []):
+        output_shapes = node_info.get("output_shapes", {})
+        for out_name, shape_meta in output_shapes.items():
+            if any(out["name"] == out_name for out in graph_dict.get("outputs", [])):
+                continue
+            if out_name in initializer_names:
+                continue
+            shape = shape_meta.get("shape")
+            dtype_str = shape_meta.get("dtype", "float32")
+            elem_type = _NP_DTYPE_TO_ONNX.get(dtype_str, onnx.TensorProto.FLOAT)
+            if shape is not None:
+                vi = helper.make_tensor_value_info(out_name, elem_type, shape)
+                value_infos.append(vi)
+
+    # 7. Make Graph
+    graph_proto = helper.make_graph(
+        nodes=graph_nodes,
+        name=graph_name,
+        inputs=graph_inputs,
+        outputs=graph_outputs,
+        initializer=onnx_initializers,
+        doc_string=graph_doc,
+        value_info=value_infos,
+    )
+
+    # 8. Opset Imports
+    opset_imports = [
+        helper.make_opsetid(opset.get("domain", ""), opset.get("version", 17))
+        for opset in metadata.get("opset_import", [])
+    ]
+    if not opset_imports:
+        opset_imports = [helper.make_opsetid("", 17)]
+
+    # 9. Make Model
+    model_kwargs: dict[str, Any] = {
+        "producer_name": metadata.get("producer_name", "neuron_toolkit"),
+        "producer_version": metadata.get("producer_version", "0.1.0"),
+        "doc_string": metadata.get("doc_string", ""),
+        "domain": metadata.get("domain", ""),
+        "model_version": metadata.get("model_version", 1),
+        "opset_imports": opset_imports,
+    }
+    if metadata.get("ir_version") is not None:
+        model_kwargs["ir_version"] = metadata["ir_version"]
+
+    return helper.make_model(
+        graph_proto,
+        **model_kwargs,
+    )
+
+
+def load_graph_from_json(
+    json_source: dict[str, Any] | str,
+    weights_source: dict[str, np.ndarray] | str | None = None,
+    seed: int | None = None,
+    **kwargs: Any,
+) -> Any:
+    """Load and rebuild a complete NeuronGraph from a JSON graph representation and optional weights.
+
+    Parameters:
+        json_source: JSON file path, JSON string, or graph dictionary.
+        weights_source: Optional path to a .safetensors file or dictionary of NumPy arrays.
+                        If omitted, weights will be randomly initialized.
+        seed: Optional random seed for weight initialization.
+        kwargs: Additional arguments passed to NeuronGraph.
+
+    Returns:
+        NeuronGraph instance containing the fully reconstructed model graph.
+    """
+    from neuron_toolkit.graph import NeuronGraph
+
+    model_proto = build_onnx_model_from_json(
+        json_source,
+        weights=weights_source,
+        seed=seed,
+    )
+    return NeuronGraph(model_proto, **kwargs)
 

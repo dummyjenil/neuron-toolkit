@@ -121,6 +121,48 @@ graph.to_json("model_graph.json")
 
 Aliases for `.to_json()`.
 
+#### `.save_safetensors(path: str, metadata: dict[str, str] | None = None) -> None`
+
+Saves all model weight and bias parameters into a standard `.safetensors` file. Compatible with Hugging Face Safetensors.
+
+```python
+# Save weights and biases into a safetensors file
+graph.save_safetensors("model_weights.safetensors")
+```
+
+#### `.export_safetensors(path: str, metadata: dict[str, str] | None = None) -> None`
+
+Alias for `.save_safetensors()`.
+
+#### `NeuronGraph.from_json(json_source, weights=None, seed=None) -> NeuronGraph`
+
+Reconstructs a complete model graph from a JSON graph file, string, or dictionary, and optional weights:
+
+- **JSON + Safetensors (`weights="model.safetensors"`)**: Rebuilds the exact graph topology with original weights and biases.
+- **JSON only (`weights=None`)**: Rebuilds the graph topology with randomly initialized weights/biases matching the shapes and dtypes in the JSON specification.
+
+```python
+# Load with exact weights from safetensors
+rebuilt_graph = NeuronGraph.from_json("model_graph.json", weights="model_weights.safetensors")
+
+# Load with random initialization
+random_graph = NeuronGraph.from_json("model_graph.json", seed=42)
+```
+
+#### `.load_safetensors(path: str, strict: bool = False) -> dict[str, list[str]]`
+
+Loads weights from a `.safetensors` file and replaces the model initializers/biases in-place (similar to PyTorch's `load_state_dict`).
+
+```python
+# Replace weights in-place
+status = graph.load_safetensors("new_weights.safetensors")
+print(status["missing_keys"], status["unexpected_keys"])
+```
+
+#### `.replace_weights(weights_dict: dict[str, np.ndarray], strict: bool = False) -> dict[str, list[str]]`
+
+Replaces weights and biases in-place from a NumPy array dictionary.
+
 ---
 
 ### Verification API Methods

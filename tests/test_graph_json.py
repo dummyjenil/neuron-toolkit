@@ -313,6 +313,92 @@ class TestGraphJsonExport(unittest.TestCase):
         assert len(graph_dict["connections"]) == 101
         assert graph_dict["metadata"]["total_weight_params"] == 500_000
 
+    def test_quantization_info_export(self):
+        # QuantizeLinear node with scale and zero_point
+        q_node = SimpleNamespace(
+            op_type="QuantizeLinear",
+            name="quant_1",
+            input=["fp32_input", "q_scale", "q_zp"],
+            output=["int8_output"],
+            attrs={"axis": 1},
+        )
+        backend = _GraphShim(
+            nodes=[q_node],
+            tensor_map={
+                "q_scale": np.array([0.025], dtype=np.float32),
+                "q_zp": np.array([0], dtype=np.int8),
+            },
+            shape_info={
+                "fp32_input": (2, "float32"),
+                "int8_output": (2, "int8"),
+                "q_scale": (1, "float32"),
+                "q_zp": (1, "int8"),
+            },
+        )
+        backend.graph_inputs = {"fp32_input"}
+        backend.graph_outputs = {"int8_output"}
+
+        graph_dict = export_graph_dict(backend)
+        node_entry = graph_dict["nodes"][0]
+
+        # Verify node quantization
+        assert node_entry["quantization"] is not None
+        assert node_entry["quantization"]["scale"] == [0.02500000037252903]
+        assert node_entry["quantization"]["zero_point"] == [0]
+        assert node_entry["quantization"]["axis"] == 1
+
+        # Verify weights summary
+        assert graph_dict["weights_summary"]["total_tensors"] == 2
+
+    def test_save_and_load_safetensors(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            st_path = os.path.join(tmpdir, "model_weights.safetensors")
+
+            weights_dict = {
+                "layer1.weight": np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
+                "layer1.bias": np.array([0.5, -0.5], dtype=np.float32),
+                "layer1.int_mask": np.array([1, 0, 1], dtype=np.int32),
+            }
+
+            node = SimpleNamespace(
+                op_type="Linear",
+                name="fc1",
+                input=["input_0", "layer1.weight", "layer1.bias"],
+                output=["out_0"],
+                attrs={},
+            )
+            backend = _GraphShim(
+                nodes=[node],
+                tensor_map=weights_dict,
+                shape_info={"input_0": (2, "float32"), "out_0": (2, "float32")},
+            )
+            backend.graph_inputs = {"input_0"}
+            backend.graph_outputs = {"out_0"}
+
+            graph = NeuronGraph(backend)
+            # Test graph.save_safetensors
+            graph.save_safetensors(st_path, metadata={"author": "neuron_toolkit"})
+
+            assert os.path.exists(st_path)
+
+            # Test load_safetensors
+            from neuron_toolkit import load_safetensors
+
+            loaded = load_safetensors(st_path)
+            assert "layer1.weight" in loaded
+            assert "layer1.bias" in loaded
+            assert "layer1.int_mask" in loaded
+
+            np.testing.assert_array_equal(
+                loaded["layer1.weight"], weights_dict["layer1.weight"]
+            )
+            np.testing.assert_array_equal(
+                loaded["layer1.bias"], weights_dict["layer1.bias"]
+            )
+            np.testing.assert_array_equal(
+                loaded["layer1.int_mask"], weights_dict["layer1.int_mask"]
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

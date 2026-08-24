@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
 
 from neuron_toolkit._utils import _GraphShim
@@ -48,8 +49,21 @@ class NeuronGraph:
     def __init__(self, source: object, **kwargs: Any) -> None:
         self._backend: Any
         if isinstance(source, str):
-            # Auto-load if it's a path
-            temp_g = self.load(source, **kwargs)
+            # Auto-load if it's a path or JSON string
+            if source.strip().startswith("{"):
+                from neuron_toolkit.exporter import load_graph_from_json
+
+                temp_g = load_graph_from_json(source, **kwargs)
+                self._backend = temp_g._backend
+            else:
+                temp_g = self.load(source, **kwargs)
+                self._backend = temp_g._backend
+        elif isinstance(source, dict) and (
+            source.get("format") == "neuron_toolkit_graph_v1" or "nodes" in source
+        ):
+            from neuron_toolkit.exporter import load_graph_from_json
+
+            temp_g = load_graph_from_json(source, **kwargs)
             self._backend = temp_g._backend
         elif isinstance(source, bytes):
             # Check flatbuffer magic header for TFLite at offset 4
@@ -99,9 +113,28 @@ class NeuronGraph:
             )
 
             return cls(TFLiteParser(path, **kwargs))
+        if ext == ".json":
+            from neuron_toolkit.exporter import load_graph_from_json
+
+            return load_graph_from_json(path, **kwargs)
 
         msg = f"Unsupported model format: {ext}"
         raise ValueError(msg)
+
+    @classmethod
+    def from_json(
+        cls,
+        json_source: str | dict[str, Any],
+        weights: str | dict[str, Any] | None = None,
+        seed: int | None = None,
+        **kwargs: Any,
+    ) -> NeuronGraph:
+        """Rebuild a NeuronGraph from a JSON graph file/string/dict and optional safetensors weights."""
+        from neuron_toolkit.exporter import load_graph_from_json
+
+        return load_graph_from_json(
+            json_source, weights_source=weights, seed=seed, **kwargs
+        )
 
     @property
     def nodes(self) -> list[object]:
@@ -224,6 +257,58 @@ class NeuronGraph:
     def to_graph_json(self, path: str | None = None, indent: int = 2) -> str | None:
         """Export the model graph structure to JSON format (alias for to_json)."""
         return self.to_json(path=path, indent=indent)
+
+    def save_safetensors(self, path: str, metadata: dict[str, str] | None = None) -> None:
+        """Save model weight and parameter tensors into a .safetensors file."""
+        from neuron_toolkit.exporter import export_safetensors
+
+        export_safetensors(self, path, metadata=metadata)
+
+    def export_safetensors(self, path: str, metadata: dict[str, str] | None = None) -> None:
+        """Save model weight and parameter tensors into a .safetensors file (alias)."""
+        self.save_safetensors(path, metadata=metadata)
+
+    def load_safetensors(
+        self,
+        path: str,
+        *,
+        strict: bool = False,
+    ) -> dict[str, list[str]]:
+        """Load weights from a .safetensors file and replace model initializers in-place (like PyTorch load_state_dict)."""
+        if hasattr(self._backend, "load_safetensors"):
+            return self._backend.load_safetensors(path, strict=strict)
+        from neuron_toolkit.exporter import load_safetensors
+
+        weights = load_safetensors(path)
+        return self.replace_weights(weights, strict=strict)
+
+    def replace_weights(
+        self,
+        weights_dict: dict[str, Any] | Mapping[str, Any],
+        *,
+        strict: bool = False,
+    ) -> dict[str, list[str]]:
+        """Replace weights/initializers in-place from a dictionary (like PyTorch load_state_dict)."""
+        if hasattr(self._backend, "replace_weights"):
+            return self._backend.replace_weights(weights_dict, strict=strict)
+        if hasattr(self._backend, "tensor_map"):
+            model_keys = set(self._backend.tensor_map.keys())
+            provided_keys = set(weights_dict.keys())
+            missing = sorted(model_keys - provided_keys)
+            unexpected = sorted(provided_keys - model_keys)
+            if strict:
+                if missing:
+                    msg = f"Missing key(s) in weights: {missing}"
+                    raise ValueError(msg)
+                if unexpected:
+                    msg = f"Unexpected key(s) in weights: {unexpected}"
+                    raise ValueError(msg)
+            if isinstance(self._backend.tensor_map, dict):
+                for k, v in weights_dict.items():
+                    if k in model_keys:
+                        self._backend.tensor_map[k] = v
+            return {"missing_keys": missing, "unexpected_keys": unexpected}
+        return {"missing_keys": [], "unexpected_keys": []}
 
     def compare_outputs(
         self,

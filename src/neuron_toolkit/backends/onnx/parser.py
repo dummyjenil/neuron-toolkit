@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from collections.abc import ItemsView, Iterator, KeysView, Sequence
+from collections.abc import ItemsView, Iterator, KeysView, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 import onnx
@@ -107,6 +107,57 @@ class ONNXParser(BaseParser):
             len(self.graph_outputs),
             len(self.shape_info),
         )
+
+    def replace_weights(
+        self,
+        weights_dict: Mapping[str, Any],
+        *,
+        strict: bool = False,
+    ) -> dict[str, list[str]]:
+        """Replace model weights and initializers in-place from a weights dictionary."""
+        import numpy as np
+        from onnx import numpy_helper
+
+        model_keys = set(self.tensor_map.keys())
+        provided_keys = set(weights_dict.keys())
+
+        missing_keys = sorted(model_keys - provided_keys)
+        unexpected_keys = sorted(provided_keys - model_keys)
+
+        if strict:
+            if missing_keys:
+                msg = f"Missing key(s) in weights: {missing_keys}"
+                raise ValueError(msg)
+            if unexpected_keys:
+                msg = f"Unexpected key(s) in weights: {unexpected_keys}"
+                raise ValueError(msg)
+
+        for init in self.model.graph.initializer:
+            if init.name in weights_dict:
+                new_arr = np.asarray(weights_dict[init.name])
+                new_proto = numpy_helper.from_array(new_arr, name=init.name)
+                init.CopyFrom(new_proto)
+                if hasattr(self.tensor_map, "_cache"):
+                    self.tensor_map._cache[init.name] = new_arr
+                if hasattr(self.tensor_map, "_initializers"):
+                    self.tensor_map._initializers[init.name] = new_proto
+
+        return {
+            "missing_keys": missing_keys,
+            "unexpected_keys": unexpected_keys,
+        }
+
+    def load_safetensors(
+        self,
+        path: str,
+        *,
+        strict: bool = False,
+    ) -> dict[str, list[str]]:
+        """Load weights from a .safetensors file and replace model initializers in-place."""
+        from neuron_toolkit.exporter import load_safetensors
+
+        weights = load_safetensors(path)
+        return self.replace_weights(weights, strict=strict)
 
     # ------------------------------------------------------------------
 

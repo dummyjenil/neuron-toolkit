@@ -192,6 +192,10 @@ class NeuronQuery:
         """Alias for find_by_op_type."""
         return self.find_by_op_type(op_type)
 
+    def by_op(self, op_type: str) -> NeuronQuery:
+        """Alias for find_by_op_type."""
+        return self.find_by_op_type(op_type)
+
     def name(self, name: str, *, exact: bool = False) -> NeuronQuery:
         """Alias for find_by_name."""
         return self.find_by_name(name, exact=exact)
@@ -571,6 +575,14 @@ class NeuronQuery:
             msg = f"Expected 1 tensor, got {list(p.keys())}"
             raise ValueError(msg)
         return next(iter(p.values()))
+
+    def all(self) -> list[object]:
+        """Return all nodes in this query as a list."""
+        return list(self.nodes)
+
+    def to_list(self) -> list[object]:
+        """Return all nodes in this query as a list."""
+        return list(self.nodes)
 
     def first(self) -> object | None:
         """Return the first node or None."""
